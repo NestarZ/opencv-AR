@@ -1,109 +1,96 @@
-__author__ = 'gauravhirlekar'
+#!/usr/bin/python
 
+import cv2
+import numpy
+import sys
 
-def init_feature():
-    #detector = cv2.SURF(500)    # 500 is the threshold Hessian value for the detector.
-    detector = cv2.xfeatures2d.SURF_create(500)
-    FLANN_INDEX_KDTREE = 1
-    index_params = dict(algorithm=FLANN_INDEX_KDTREE, trees=5)
-    search_params = dict(checks=100)     # Or pass empty dictionary
-    matcher = cv2.FlannBasedMatcher(index_params, search_params)
-    return detector, matcher
+##
+# Opens a video capture device with a resolution of 800x600
+# at 30 FPS.
+##
+def open_video(cam_id = 0):
+    cap = cv2.VideoCapture(cam_id)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 600);
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 800);
+    cap.set(cv2.CAP_PROP_FPS, 30);
+    return cap
 
+##
+# Gets a frame from an open video device, or returns None
+# if the capture could not be made.
+##
+def get_frame(device):
+    ret, img = device.read()
+    if (ret == False): # failed to capture
+        print >> sys.stderr, "Error capturing from video device."
+        return None
+    return img
 
-def explore_match(win, img1, img2, kp_pairs, status=None, H=None):
-    h1, w1 = img1.shape[:2]
-    h2, w2 = img2.shape[:2]
-    vis = np.zeros((max(h1, h2), w1 + w2), np.uint8)
-    vis[:h1, :w1] = img1
-    vis[:h2, w1:w1 + w2] = img2
-    vis = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
+##
+# Closes all OpenCV windows and releases video capture device
+# before exit.
+##
+def cleanup(cam_id = 0):
+    cv2.destroyAllWindows()
+    cv2.VideoCapture(cam_id).release()
 
-    if len(kp_pairs) is 0:
-        cv2.imshow(win, vis)
-        return vis
+##
+# Creates a new RGB image of the specified size, initially
+# filled with black.
+##
+def new_rgb_image(width, height):
+    image = numpy.zeros( (height, width, 3), numpy.uint8)
+    return image
 
+##
+# Converts an RGB image to grayscale, where each pixel
+# now represents the intensity of the original image.
+##
+def rgb_to_gray(img):
+    return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    if H is not None and len(status) > 10:
-        corners = np.float32([[0, 0], [w1, 0], [w1, h1], [0, h1]])
-        corners = np.int32(cv2.perspectiveTransform(corners.reshape(1, -1, 2), H).reshape(-1, 2) + (w1, 0))
-        cv2.polylines(vis, [corners], True, (0, 0, 255), thickness=2)
-        print cv2.perspectiveTransform(np.float32([w1/2, h1/2]).reshape(1, -1, 2), H).reshape(-1, 2)-np.float32(w1/2)
+##
+# Converts an image into a binary image at the specified threshold.
+# All pixels with a value <= threshold become 0, while
+# pixels > threshold become 1
+def do_threshold(image, threshold = 170):
+    (thresh, im_bw) = cv2.threshold(image, threshold, 255, cv2.THRESH_BINARY)
+    return (thresh, im_bw)
 
-    if status is None:
-        status = np.ones(len(kp_pairs), np.bool_)
+def find_contours(image):
+    (image, contours0, hierarchy) = cv2.findContours(image.copy(), mode=cv2.RETR_TREE, method=cv2.CHAIN_APPROX_SIMPLE)
+    contours = [cv2.approxPolyDP(cnt, 3, True) for cnt in contours0]
+    return contours, hierarchy
 
-    p1 = np.int32([kpp[0].pt for kpp in kp_pairs])
-    p2 = np.int32([kpp[1].pt for kpp in kp_pairs]) + (w1, 0)
+########### Main Program ###########
 
-    green = (0, 255, 0)
-    red = (0, 0, 255)
-
-    for (x1, y1), (x2, y2), inlier in zip(p1, p2, status):
-        if inlier:
-            col = green
-            cv2.circle(vis, (x1, y1), 2, col, -1)
-            cv2.circle(vis, (x2, y2), 2, col, -1)
-            cv2.line(vis, (x1, y1), (x2, y2), green)
-        else:
-            col = red
-            r = 2
-            thickness = 3
-            cv2.line(vis, (x1 - r, y1 - r), (x1 + r, y1 + r), col, thickness)
-            cv2.line(vis, (x1 - r, y1 + r), (x1 + r, y1 - r), col, thickness)
-            cv2.line(vis, (x2 - r, y2 - r), (x2 + r, y2 + r), col, thickness)
-            cv2.line(vis, (x2 - r, y2 + r), (x2 + r, y2 - r), col, thickness)
-
-    cv2.imshow(win, vis)
-    return vis
-
-
-def filter_matches(kp1, kp2, matches, ratio=0.75):
-    good_matches = [m[0] for m in matches if m[0].distance <= m[1].distance * ratio]
-    # Match is good only if the closest match is much closer than the second closest match. 0.75 is arbitrary ratio.
-
-    kp_pairs = [(kp1[m.queryIdx], kp2[m.trainIdx]) for m in good_matches]
-    p1 = np.float32([kp[0].pt for kp in kp_pairs])
-    p2 = np.float32([kp[1].pt for kp in kp_pairs])
-    return p1, p2, kp_pairs
-
-
-if __name__ == '__main__':
-    import cv2
-    import numpy as np
-
-    winName = 'Detector'
-    img1 = cv2.imread('sample.png', 0)
-    detector, matcher = init_feature()
-    kp1, desc1 = detector.detectAndCompute(img1, None)
-
-    cap = cv2.VideoCapture(0)
-    cv2.namedWindow(winName)
+if __name__ == "__main__":
+    # Camera ID to read video from (numbered from 0)
+    video_filename = '../media/video/movement1.mp4'
+    dev = open_video(video_filename) # open the camera as a video capture device
 
     while True:
-        s, img2 = cap.read()
-        img2 = cv2.resize(cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY), (640, 480))
-        # img2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+        img_orig = get_frame(dev) # Get a frame from the camera
+        if img_orig is not None: # if we did get an image
+            h, w = img_orig.shape[:2]
+            img_gray = rgb_to_gray(img_orig) # Convert img_orig from video camera from RGB to Grayscale
+            # Converts grayscale image to a binary image with a threshold value of 220. Any pixel with an
+            # intensity of <= 220 will be black, while any pixel with an intensity > 220 will be white:
+            (thresh, img_threshold) = do_threshold(img_gray, 65)
+            contours, hierarchy = find_contours(img_threshold)
+            # Here, we are creating a new RBB image to display our results on
+            vis = numpy.zeros((h, w, 3), numpy.uint8)
+            cv2.drawContours(vis, contours, -1, (128,255,255),
+                3, cv2.LINE_AA, hierarchy, 7 )
 
-        kp2, desc2 = detector.detectAndCompute(img2, None)
-        if desc2 is None:
-            # print "No descriptors found"
-            continue
-        raw_matches = matcher.knnMatch(desc1, trainDescriptors=desc2, k=2)
-        # knnMatch gives k closest matched keypoints with a L2 norm distance
-
-        p1, p2, kp_pairs = filter_matches(kp1, kp2, raw_matches, 0.7)
-        if len(p1) >= 4:
-            H, status = cv2.findHomography(p1, p2, cv2.RANSAC, 5.0)
-            print '%d / %d  inliers/matched' % (np.sum(status), len(status))
-        else:
-            H, status = None, None
-            print '%d matches found, not enough for homography estimation' % len(p1)
-
-        vis = explore_match(winName, img1, img2, kp_pairs, status, H)
-
-        if cv2.waitKey(1) & 0xFF == 27:  # Esc key ends loop
+            # Display Results
+            cv2.imshow("results", vis)
+            cv2.imshow("Threshold", img_threshold)
+            cv2.imshow("video", img_orig) # display the image in a window named "video"
+        else: # if we failed to capture (camera disconnected?), then quit
             break
 
-    cap.release()
-    cv2.destroyAllWindows()
+        if (cv2.waitKey(2) >= 0): # If the user presses any key, exit the loop
+            break
+
+    cleanup(video_filename) # close video device and windows before we exit
