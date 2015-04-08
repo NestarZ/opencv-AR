@@ -64,6 +64,11 @@ class VideoCapture(Capture):
         """ Releases video capture device. """
         cv2.VideoCapture(self.material_id).release()
 
+class CamCapture(VideoCapture):
+    def open(self):
+        file_path = self.material_id
+        self.device = cv2.VideoCapture(file_path)
+
 class MarkerDetector:
     def __init__(self):
         pass
@@ -83,8 +88,8 @@ class MarkerDetector:
         return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     def do_threshold(self, image):
-        #im_bw = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 7, 7)
-        (thres, im_thres) = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY_INV)
+        im_thres = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 7, 15)
+        #(thres, im_thres) = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY_INV)
         return im_thres
 
     def find_contours(self, threshold_img):
@@ -93,12 +98,12 @@ class MarkerDetector:
         contours = []
         for c in all_contours:
             # Approxime par un polynome
-            approx_curve = cv2.approxPolyDP(c, c.size*.05, True)
+            approx_curve = cv2.approxPolyDP(c, c.size*.20, True)
             if not cv2.isContourConvex(approx_curve):
                 continue
-            #if approx_curve.size == 4:
+            #if approx_curve.size != 4:
                 #continue
-            if c.size < 70:
+            if c.size < 100:
                 continue
             contours.append(c)
         return contours
@@ -112,8 +117,10 @@ class Master:
         self.markerdetector = MarkerDetector()
 
     def start(self, mode, material_id):
-        if mode == VID_MODE or mode == CAM_MODE:
+        if mode == VID_MODE:
             self.capture = VideoCapture(material_id)
+        elif mode == CAM_MODE:
+            self.capture = CamCapture(material_id)
         elif mode == IMG_MODE:
             self.capture = ImageCapture(material_id)
         self.capture.open()
@@ -137,15 +144,15 @@ CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
 # Devices
-IMG_EXAMPLE1 = 'markerQR.png'
+IMG_EXAMPLE1 = 'marker1.JPG'
 VID_EXAMPLE1 = 'movement1.mp4'
 CAM_INDEX = 0
 
 def main():
     master = Master()
-    master.start(IMG_MODE, IMG_EXAMPLE1)
+    #master.start(IMG_MODE, IMG_EXAMPLE1)
     #master.start(VID_MODE, VID_EXAMPLE1)
-    #master.start(CAM_MODE, CAM_INDEX)
+    master.start(CAM_MODE, CAM_INDEX)
     master.cleanup()
 
 if __name__ == "__main__":
