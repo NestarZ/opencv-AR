@@ -1,3 +1,6 @@
+ #!/usr/bin/python
+ # -*- coding: utf-8 -*-
+
 import cv2
 import numpy
 
@@ -79,15 +82,20 @@ class MarkerDetector:
         img_gray = self.rgb_to_gray(img_orig)
         img_threshold = self.do_threshold(img_gray)
         self.ui.display('thres', img_threshold)
+        cv2.moveWindow('thres', 600, 0)
         contours = self.find_contours(img_threshold)
         img_contours = numpy.zeros((h, w, 3), numpy.uint8)
         img_contours = cv2.drawContours(img_contours, contours, -1, (255,255,255), 2)
+        result_img = numpy.zeros((h, w, 3), numpy.uint8)
+        fail_img = numpy.zeros((h, w, 3), numpy.uint8)
+        self.ui.display('contours', img_contours)
+        cv2.moveWindow('contours', 1200, 0)
         for i in range(len(contours)):
             if i < 3: # pour pas flood
                 result_img = numpy.zeros((h, w, 3), numpy.uint8)
-                result_img = self.homothetie_marker(img_orig, [contours[i]])
+                result_img = self.homothetie_marker(img_orig, contours[i])
                 self.ui.display('contours_'+str(i), result_img)
-        return result_img
+                cv2.moveWindow('contours_'+str(i), i*300, 800)
 
     def rgb_to_gray(self, img):
         """ Converts an RGB image to grayscale, where each pixel
@@ -95,7 +103,7 @@ class MarkerDetector:
         return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     def do_threshold(self, image):
-        im_thres = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 7, 12)
+        im_thres = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 7, 15)
         #(thres, im_thres) = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY_INV)
         return im_thres
 
@@ -111,49 +119,38 @@ class MarkerDetector:
                 continue
             if cv2.contourArea(c) < 100:
                 continue
-            if approx_curve.size != 8:
+            if len(approx_curve) != 4:
                 continue
             markers_contours.append(approx_curve)
         return markers_contours
 
-    def homothetie_marker(self, img_orig, corners):
+    def homothetie_marker(self, img_orig, points):
         # Find the perspective transfomation to get a rectangular 2D marker
-        if not corners: return img_orig
+        corners = self.curve_to_quadrangle(points)
         ideal_corners = numpy.float32([[0,0],[200,0],[0,200],[200,200]])
-        sorted_corners = self.sort_corners(corners[0])
+        sorted_corners = self.sort_corners(corners)
         M = cv2.getPerspectiveTransform(sorted_corners, ideal_corners)
         marker2D_img = cv2.warpPerspective(img_orig, M, (200,200))
         return marker2D_img
 
-    def get_mass_center(self, corners):
-        center = numpy.zeros((1, 2))
-        for i in range(corners.size-4):
-            center += corners[i]
-        center *= 1. / (corners.size-4)
-        return center
-
     def sort_corners(self, corners):
-        # J'AI CRACHE MES TRIPES POUR SORTIR CE CODE !
-        mass_center = self.get_mass_center(corners)
-        topl = []
-        bottoml = []
-        for c in corners:
-            if c[0][1] < mass_center[0][1]:
-                topl.append(c)
-            else:
-                bottoml.append(c)
-        top = numpy.float32(topl)
-        bot = numpy.float32(bottoml)
-        if top.size-2 == 2 and bot.size-2 == 2:
-    		tl = top[1] if top[0][0][0] > top[1][0][0] else top[0]
-    		tr = top[0] if top[0][0][0] > top[1][0][0] else top[1]
-    		br = bot[1] if bot[0][0][0] > bot[1][0][0] else bot[0]
-    		bl = bot[0] if bot[0][0][0] > bot[1][0][0] else bot[1]
-    		corners = numpy.float32([tl, tr, br, bl])
-        return corners
+        # ON A CRACHE NOS TRIPES POUR SORTIR CE CODE !
+        top_corners = sorted(corners, key=lambda x : x[1])
+        top = top_corners[:2]
+        bot = top_corners[2:]
+        if len(top) == 2 and len(bot) == 2:
+    	    tl = top[1] if top[0][0] > top[1][0] else top[0]
+    	    tr = top[0] if top[0][0] > top[1][0] else top[1]
+    	    br = bot[1] if bot[0][0] > bot[1][0] else bot[0]
+    	    bl = bot[0] if bot[0][0] > bot[1][0] else bot[1]
+    	    corners = numpy.float32([tl, tr, br, bl])
+            return corners
+        raise Exception('len(bot) != 2 or len(top) != 2')
 
-    def display(self, caption, img):
-        cv2.imshow(caption, img)
+    def curve_to_quadrangle(self, points):
+        assert points.size == 8, 'not a quadrangle'
+        vertices = [p[0] for p in points]
+        return numpy.float32([x for x in vertices])
 
 class Master:
     def __init__(self):
@@ -179,8 +176,8 @@ class Master:
             img = self.capture.get_frame()
             if img is None: break
             self.ui.display('raw', img)
-            result_img = self.markerdetector(img)
-            self.ui.display('result', result_img)
+            cv2.moveWindow('raw', 0, 0)
+            self.markerdetector(img)
             first = False
 
     def cleanup(self):
@@ -188,13 +185,20 @@ class Master:
         cv2.destroyAllWindows()
         self.capture.kill()
 
+# todo : Ameliorer le thresholding
+#           Faire en fonction de la luminosité ambiante ?
+#        Multiples détections d'un même marqueur, à corriger
+#        Détecter si c'est réellement un marqueur, décomposer l'image 2D
+#           reconstuire en petits morceaux et voir si les couleurs correspondent?
+#        Représentation 3D du marqueur
+
 # Modes
 CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
 # Devices
 IMG_EXAMPLE1 = 'markerQR.png'
-VID_EXAMPLE1 = 'movement1.mp4'
+VID_EXAMPLE1 = 'rotation1.mp4'
 CAM_INDEX = 0
 
 def main():
