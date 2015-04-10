@@ -91,6 +91,7 @@ class MarkerDetector:
         result_img = numpy.zeros((h, w, 3), numpy.uint8)
         self.ui.display('contours', img_contours)
         cv2.moveWindow('contours', 1200, 0)
+        print len(contours)
         for i in range(len(contours)):
             if i < 6: # pour pas flood
                 result_img = numpy.zeros((h, w, 3), numpy.uint8)
@@ -99,7 +100,6 @@ class MarkerDetector:
                 self.ui.display('marker2D_'+str(i), result_img)
                 cv2.moveWindow('marker2D_'+str(i), i*300, 800)
         cv2.waitKey(0)
-
 
     def rgb_to_gray(self, img):
         """ Converts an RGB image to grayscale, where each pixel
@@ -111,32 +111,27 @@ class MarkerDetector:
         return thres, im_thres
 
     def canny_algorithm(self, image):
-        #return cv2.Canny(image,100,200)
-        image = cv2.GaussianBlur(image, (5,5), 0)
-        image = cv2.dilate(image, None, (-1,-1))
-        image = cv2.bilateralFilter(image,9,75,75);
-        # Otsu algorithm
-        otsu_thresh_val = self.do_threshold(image)[0]
-        high_thresh_val  = otsu_thresh_val
-        lower_thresh_val = otsu_thresh_val * 0.5
-        # Mean algorithm
-        #high_thresh_val = cv2.mean(image)[0]*1.33
-        #lower_thresh_val = cv2.mean(image)[0]*0.66
-        canny = cv2.Canny(image, lower_thresh_val, high_thresh_val)
-        return canny
+        kernel = numpy.ones((3,3),numpy.uint8)
+        image = cv2.dilate(image, kernel, (-1,-1), iterations=1)
+        image = cv2.GaussianBlur(image, (3,3), 0)
+        high_thresh_val = cv2.mean(image)[0]*1.33
+        lower_thresh_val = cv2.mean(image)[0]*0.66
+        image = cv2.Canny(image, lower_thresh_val, high_thresh_val)
+        image = cv2.dilate(image, kernel, (-1,-1), iterations=1)
+        image = cv2.erode(image,kernel,(-1,-1),iterations=1)
+        return image
 
     def find_contours(self, threshold_img):
         (threshold_img, all_contours, hierarchy) = cv2.findContours(threshold_img,
             mode=cv2.RETR_LIST, method=cv2.CHAIN_APPROX_SIMPLE)
         markers_contours = []
         for c in all_contours:
-            hull = cv2.convexHull(c) # find the convex hull of contour
             # Approxime par un polynome
             epsilon = 0.025*cv2.arcLength(c, True)
             approx_curve = cv2.approxPolyDP(c, epsilon, True)
             if not cv2.isContourConvex(approx_curve):
                 continue
-            if cv2.contourArea(c) < 500:
+            if cv2.contourArea(approx_curve) < 500:
                 continue
             if len(approx_curve) != 4:
                 continue
@@ -216,7 +211,7 @@ VID_MODE = 2
 IMG_MODE = 3
 # Devices
 IMG_EXAMPLE1 = 'markerQR.png'
-VID_EXAMPLE1 = 'movement2.mp4'
+VID_EXAMPLE1 = 'rotation1.mp4'
 CAM_INDEX = 0
 
 def main():
