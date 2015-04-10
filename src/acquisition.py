@@ -78,6 +78,7 @@ class MarkerDetector:
         self.ui = UserInterface()
 
     def __call__(self, img_orig):
+        self.img_orig = img_orig
         w, h = img_orig.shape[1], img_orig.shape[0]
         img_gray = self.rgb_to_gray(img_orig)
         #img_threshold = self.do_threshold(img_gray)
@@ -86,56 +87,56 @@ class MarkerDetector:
         cv2.moveWindow('thres', 600, 0)
         contours = self.find_contours(img_threshold)
         img_contours = numpy.zeros((h, w, 3), numpy.uint8)
-        img_contours = cv2.drawContours(img_contours, contours, -1, (255,255,255), 2)
+        img_contours = cv2.drawContours(img_contours, contours, -1, (255,255,255), 1)
         result_img = numpy.zeros((h, w, 3), numpy.uint8)
-        fail_img = numpy.zeros((h, w, 3), numpy.uint8)
         self.ui.display('contours', img_contours)
         cv2.moveWindow('contours', 1200, 0)
         for i in range(len(contours)):
-            if i < 4: # pour pas flood
-                print contours[i]
+            if i < 6: # pour pas flood
                 result_img = numpy.zeros((h, w, 3), numpy.uint8)
-                result_img = self.homothetie_marker(img_orig, contours[i])
-                self.ui.display('contours_'+str(i), result_img)
-                cv2.moveWindow('contours_'+str(i), i*300, 800)
+                result_img = self.homothetie_marker(img_gray, contours[i])
+                result_img = self.do_threshold(result_img, 125)[1]
+                self.ui.display('marker2D_'+str(i), result_img)
+                cv2.moveWindow('marker2D_'+str(i), i*300, 800)
+        cv2.waitKey(0)
+
 
     def rgb_to_gray(self, img):
         """ Converts an RGB image to grayscale, where each pixel
         now represents the intensity of the original image. """
         return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    def do_threshold(self, image):
-        im_thres = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 7, 12)
-        #(thres, im_thres) = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY_INV)
-        return im_thres
+    def do_threshold(self, image, thresh=0):
+        (thres, im_thres) = cv2.threshold(image, thresh, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        return thres, im_thres
 
     def canny_algorithm(self, image):
         #return cv2.Canny(image,100,200)
-        ## Adaptative Canny
-        # Gaussian
-        image = cv2.GaussianBlur(image, (3,3), 3)
-        # Mean
-        #image = cv2.medianBlur(image, 7)
+        image = cv2.GaussianBlur(image, (5,5), 0)
+        image = cv2.dilate(image, None, (-1,-1))
+        image = cv2.bilateralFilter(image,9,75,75);
         # Otsu algorithm
-        otsu_thresh_val, dst = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        otsu_thresh_val = self.do_threshold(image)[0]
         high_thresh_val  = otsu_thresh_val
         lower_thresh_val = otsu_thresh_val * 0.5
         # Mean algorithm
         #high_thresh_val = cv2.mean(image)[0]*1.33
         #lower_thresh_val = cv2.mean(image)[0]*0.66
-        return cv2.Canny(image, lower_thresh_val, high_thresh_val)
+        canny = cv2.Canny(image, lower_thresh_val, high_thresh_val)
+        return canny
 
     def find_contours(self, threshold_img):
         (threshold_img, all_contours, hierarchy) = cv2.findContours(threshold_img,
             mode=cv2.RETR_LIST, method=cv2.CHAIN_APPROX_SIMPLE)
         markers_contours = []
         for c in all_contours:
+            hull = cv2.convexHull(c) # find the convex hull of contour
             # Approxime par un polynome
-            epsilon = 0.05*cv2.arcLength(c, True)
+            epsilon = 0.025*cv2.arcLength(c, True)
             approx_curve = cv2.approxPolyDP(c, epsilon, True)
             if not cv2.isContourConvex(approx_curve):
                 continue
-            if cv2.contourArea(c) < 100:
+            if cv2.contourArea(c) < 500:
                 continue
             if len(approx_curve) != 4:
                 continue
@@ -187,7 +188,7 @@ class Master:
 
     def main_loop(self):
         first = True
-        while not self.ui.exit:
+        while True:
             if self.mode == IMG_MODE and not first:
                 continue
             img = self.capture.get_frame()
