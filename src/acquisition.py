@@ -80,7 +80,8 @@ class MarkerDetector:
     def __call__(self, img_orig):
         w, h = img_orig.shape[1], img_orig.shape[0]
         img_gray = self.rgb_to_gray(img_orig)
-        img_threshold = self.do_threshold(img_gray)
+        #img_threshold = self.do_threshold(img_gray)
+        img_threshold = self.canny_algorithm(img_gray)
         self.ui.display('thres', img_threshold)
         cv2.moveWindow('thres', 600, 0)
         contours = self.find_contours(img_threshold)
@@ -91,7 +92,8 @@ class MarkerDetector:
         self.ui.display('contours', img_contours)
         cv2.moveWindow('contours', 1200, 0)
         for i in range(len(contours)):
-            if i < 3: # pour pas flood
+            if i < 4: # pour pas flood
+                print contours[i]
                 result_img = numpy.zeros((h, w, 3), numpy.uint8)
                 result_img = self.homothetie_marker(img_orig, contours[i])
                 self.ui.display('contours_'+str(i), result_img)
@@ -103,9 +105,25 @@ class MarkerDetector:
         return cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
     def do_threshold(self, image):
-        im_thres = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 7, 15)
+        im_thres = cv2.adaptiveThreshold(image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 7, 12)
         #(thres, im_thres) = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY_INV)
         return im_thres
+
+    def canny_algorithm(self, image):
+        #return cv2.Canny(image,100,200)
+        ## Adaptative Canny
+        # Gaussian
+        image = cv2.GaussianBlur(image, (3,3), 3)
+        # Mean
+        #image = cv2.medianBlur(image, 7)
+        # Otsu algorithm
+        otsu_thresh_val, dst = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+        high_thresh_val  = otsu_thresh_val
+        lower_thresh_val = otsu_thresh_val * 0.5
+        # Mean algorithm
+        #high_thresh_val = cv2.mean(image)[0]*1.33
+        #lower_thresh_val = cv2.mean(image)[0]*0.66
+        return cv2.Canny(image, lower_thresh_val, high_thresh_val)
 
     def find_contours(self, threshold_img):
         (threshold_img, all_contours, hierarchy) = cv2.findContours(threshold_img,
@@ -134,7 +152,6 @@ class MarkerDetector:
         return marker2D_img
 
     def sort_corners(self, corners):
-        # ON A CRACHE NOS TRIPES POUR SORTIR CE CODE !
         top_corners = sorted(corners, key=lambda x : x[1])
         top = top_corners[:2]
         bot = top_corners[2:]
@@ -198,7 +215,7 @@ VID_MODE = 2
 IMG_MODE = 3
 # Devices
 IMG_EXAMPLE1 = 'markerQR.png'
-VID_EXAMPLE1 = 'rotation1.mp4'
+VID_EXAMPLE1 = 'movement2.mp4'
 CAM_INDEX = 0
 
 def main():
