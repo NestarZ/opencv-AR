@@ -91,15 +91,17 @@ class MarkerDetector:
         result_img = numpy.zeros((h, w, 3), numpy.uint8)
         self.ui.display('contours', img_contours)
         cv2.moveWindow('contours', 1200, 0)
-        print len(contours)
+        contours = self.filter_marker(img_gray, contours)
         for i in range(len(contours)):
+            print len(contours)
             if i < 6: # pour pas flood
                 result_img = numpy.zeros((h, w, 3), numpy.uint8)
                 result_img = self.homothetie_marker(img_gray, contours[i])
                 result_img = self.do_threshold(result_img, 125)[1]
                 self.ui.display('marker2D_'+str(i), result_img)
                 cv2.moveWindow('marker2D_'+str(i), i*300, 800)
-        cv2.waitKey(0)
+        #cv2.waitKey(0)
+        return contours
 
     def rgb_to_gray(self, img):
         """ Converts an RGB image to grayscale, where each pixel
@@ -122,18 +124,20 @@ class MarkerDetector:
         return image
 
     def find_contours(self, threshold_img):
-        (threshold_img, all_contours, hierarchy) = cv2.findContours(threshold_img,
-            mode=cv2.RETR_LIST, method=cv2.CHAIN_APPROX_SIMPLE)
+        (threshold_img, contours, hierarchy) = cv2.findContours(threshold_img,
+            mode=cv2.RETR_CCOMP, method=cv2.CHAIN_APPROX_SIMPLE)
         markers_contours = []
-        for c in all_contours:
+        for i in range(len(contours)):
             # Approxime par un polynome
-            epsilon = 0.025*cv2.arcLength(c, True)
-            approx_curve = cv2.approxPolyDP(c, epsilon, True)
+            epsilon = 0.025*cv2.arcLength(contours[i], True)
+            approx_curve = cv2.approxPolyDP(contours[i], epsilon, True)
             if not cv2.isContourConvex(approx_curve):
                 continue
             if cv2.contourArea(approx_curve) < 500:
                 continue
             if len(approx_curve) != 4:
+                continue
+            if hierarchy[0][i][3] >= 0:
                 continue
             markers_contours.append(approx_curve)
         return markers_contours
@@ -146,6 +150,12 @@ class MarkerDetector:
         M = cv2.getPerspectiveTransform(sorted_corners, ideal_corners)
         marker2D_img = cv2.warpPerspective(img_orig, M, (200,200))
         return marker2D_img
+
+    def filter_marker(self, img_orig, contours):
+        markers_position = []
+        for i in range(len(contours)):
+            markers_position.append(contours[i])
+        return markers_position
 
     def sort_corners(self, corners):
         top_corners = sorted(corners, key=lambda x : x[1])
@@ -165,6 +175,12 @@ class MarkerDetector:
         vertices = [p[0] for p in points]
         return numpy.float32([x for x in vertices])
 
+class MarkerTracker:
+    def __init__(self):
+        self.ui = UserInterface()
+
+
+
 class Master:
     def __init__(self):
         self.ui = UserInterface()
@@ -183,7 +199,8 @@ class Master:
 
     def main_loop(self):
         first = True
-        while True:
+        #while True:
+        while not self.ui.exit:
             if self.mode == IMG_MODE and not first:
                 continue
             img = self.capture.get_frame()
@@ -210,14 +227,14 @@ CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
 # Devices
-IMG_EXAMPLE1 = 'markerQR.png'
+IMG_EXAMPLE1 = 'marker-web6.jpg'
 VID_EXAMPLE1 = 'rotation1.mp4'
 CAM_INDEX = 0
 
 def main():
     master = Master()
-    #master.start(IMG_MODE, IMG_EXAMPLE1)
-    master.start(VID_MODE, VID_EXAMPLE1)
+    master.start(IMG_MODE, IMG_EXAMPLE1)
+    #master.start(VID_MODE, VID_EXAMPLE1)
     #master.start(CAM_MODE, CAM_INDEX)
     master.cleanup()
 
