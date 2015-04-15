@@ -13,8 +13,12 @@ class UserInterface:
         return cv2.waitKey(1) >= 0
 
     @classmethod
-    def display(cls, caption, img):
+    def display(cls, caption, img, coordxy=None):
         cv2.imshow(caption, img)
+        if coordxy:
+            assert isinstance(coordxy, tuple) and len(coordxy) == 2
+            assert all(isinstance(coord, int) for coord in coordxy)
+            cv2.moveWindow(caption, coordxy[0], coordxy[1])
 
 class Capture(object):
     def __init__(self, material_id):
@@ -39,6 +43,7 @@ class ImageCapture(Capture):
     def open(self):
         file_path = self.path + self.material_id
         self.img = cv2.imread(file_path)
+        self.img = cv2.resize(self.img, (700,500));
         if self.img is None:
             raise Exception('No image to read')
 
@@ -81,27 +86,14 @@ class MarkerDetector:
         self.img_orig = img_orig
         w, h = img_orig.shape[1], img_orig.shape[0]
         img_gray = self.rgb_to_gray(img_orig)
-        #img_threshold = self.do_threshold(img_gray)
         img_threshold = self.canny_algorithm(img_gray)
-        self.ui.display('thres', img_threshold)
-        cv2.moveWindow('thres', 600, 0)
+        self.ui.display('threshold', img_threshold, (600, 0))
         contours = self.find_contours(img_threshold)
         img_contours = numpy.zeros((h, w, 3), numpy.uint8)
         img_contours = cv2.drawContours(img_contours, contours, -1, (255,255,255), 1)
-        result_img = numpy.zeros((h, w, 3), numpy.uint8)
-        self.ui.display('contours', img_contours)
-        cv2.moveWindow('contours', 1200, 0)
-        contours = self.filter_marker(img_gray, contours)
-        for i in range(len(contours)):
-            print len(contours)
-            if i < 6: # pour pas flood
-                result_img = numpy.zeros((h, w, 3), numpy.uint8)
-                result_img = self.homothetie_marker(img_gray, contours[i])
-                result_img = self.do_threshold(result_img, 125)[1]
-                self.ui.display('marker2D_'+str(i), result_img)
-                cv2.moveWindow('marker2D_'+str(i), i*300, 800)
-        #cv2.waitKey(0)
-        return contours
+        self.ui.display('contours', img_contours, (1200, 0))
+        markers = self.get_markers(img_gray, contours)
+        return markers
 
     def rgb_to_gray(self, img):
         """ Converts an RGB image to grayscale, where each pixel
@@ -151,11 +143,29 @@ class MarkerDetector:
         marker2D_img = cv2.warpPerspective(img_orig, M, (200,200))
         return marker2D_img
 
-    def filter_marker(self, img_orig, contours):
-        markers_position = []
-        for i in range(len(contours)):
-            markers_position.append(contours[i])
-        return markers_position
+    def get_marker_id(self, img):
+        return 1
+        assert all(len(row) == len(img) for row in img) #matrice carrée
+        assert img.type() == CV_8UC1
+        bit_matrix = numpy.zeros(5, 5, cv2.CV_8UC1);
+        for y in range(5):
+            for x in range(5):
+                # todo ...
+                nb_white = cv2.countNonZero(cell)
+                if nb_white > cell_size**2:
+                    bit_matrix[x][y] = 1 #is white
+
+    def get_markers(self, img_gray, positions):
+        print("Quadrangles detected = {}".format(len(positions)))
+        markers = {}
+        for i in range(len(positions)):
+            img = self.homothetie_marker(img_gray, positions[i])
+            img = self.do_threshold(img, 125)[1]
+            id_ = self.get_marker_id(img)
+            if isinstance(id_, int):
+                markers[id_] = positions[i]
+                self.ui.display('marker2D_{} id={}'.format(i, id_), img, (i*300, 800))
+        return markers
 
     def sort_corners(self, corners):
         top_corners = sorted(corners, key=lambda x : x[1])
@@ -227,14 +237,14 @@ CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
 # Devices
-IMG_EXAMPLE1 = 'marker-web6.jpg'
+IMG_EXAMPLE1 = 'markerQR2.png'
 VID_EXAMPLE1 = 'rotation1.mp4'
 CAM_INDEX = 0
 
 def main():
     master = Master()
-    master.start(IMG_MODE, IMG_EXAMPLE1)
-    #master.start(VID_MODE, VID_EXAMPLE1)
+    #master.start(IMG_MODE, IMG_EXAMPLE1)
+    master.start(VID_MODE, VID_EXAMPLE1)
     #master.start(CAM_MODE, CAM_INDEX)
     master.cleanup()
 
