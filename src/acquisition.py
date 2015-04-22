@@ -3,6 +3,7 @@
 
 import cv2
 import numpy
+import json
 
 class UserInterface:
     def __init__(self):
@@ -79,6 +80,7 @@ class CamCapture(VideoCapture):
         self.device = cv2.VideoCapture(cam_id)
 
 class MarkerDetector:
+
     def __init__(self):
         self.ui = UserInterface()
 
@@ -143,29 +145,44 @@ class MarkerDetector:
         marker2D_img = cv2.warpPerspective(img_orig, M, (200,200))
         return marker2D_img
 
-    def get_marker_id(self, img):
-        return 1
+    def get_ref_markers(self):
+        fic = open("markers_ref.json", "r")
+        _str = fic.read()
+        markers_array = json.loads(_str)
+        print len(markers_array)
+        return markers_array
+
+    def get_bit_matrix(self, img, split_coeff):
+        """ split_coeff : découpage de l'image en x*x cases
+            cell_size : w, h
+        """
         assert all(len(row) == len(img) for row in img) #matrice carrée
-        assert img.type() == CV_8UC1
-        bit_matrix = numpy.zeros(5, 5, cv2.CV_8UC1);
-        for y in range(5):
-            for x in range(5):
-                # todo ...
+        cell_size = len(img)/split_coeff, len(img[0])/split_coeff
+        bit_matrix = [[0 for x in range(split_coeff)] for y in range(split_coeff)]
+        for y in range(split_coeff):
+            for x in range(split_coeff):
+                cell = img[(x*cell_size[0]):(x+1)*cell_size[0], (y*cell_size[1]):(y+1)*cell_size[1]]
                 nb_white = cv2.countNonZero(cell)
-                if nb_white > cell_size**2:
+                if nb_white > (cell_size[0]**2)/2:
                     bit_matrix[x][y] = 1 #is white
+        return bit_matrix
 
     def get_markers(self, img_gray, positions):
         print("Quadrangles detected = {}".format(len(positions)))
-        markers = {}
+        markers = self.get_ref_markers()
+        detected_markers = {}
         for i in range(len(positions)):
             img = self.homothetie_marker(img_gray, positions[i])
             img = self.do_threshold(img, 125)[1]
-            id_ = self.get_marker_id(img)
-            if isinstance(id_, int):
-                markers[id_] = positions[i]
+            mat = self.get_bit_matrix(img, 8)
+            try:
+                id_ = markers.index(mat)
+                detected_markers[id_] = positions[i]
                 self.ui.display('marker2D_{} id={}'.format(i, id_), img, (i*300, 800))
-        return markers
+            except:
+                pass
+        print("Markers detected = {}".format(len(detected_markers)))
+        return detected_markers
 
     def sort_corners(self, corners):
         top_corners = sorted(corners, key=lambda x : x[1])
@@ -188,7 +205,6 @@ class MarkerDetector:
 class MarkerTracker:
     def __init__(self):
         self.ui = UserInterface()
-
 
 
 class Master:
@@ -244,8 +260,8 @@ CAM_INDEX = 0
 def main():
     master = Master()
     #master.start(IMG_MODE, IMG_EXAMPLE1)
-    master.start(VID_MODE, VID_EXAMPLE1)
-    #master.start(CAM_MODE, CAM_INDEX)
+    #master.start(VID_MODE, VID_EXAMPLE1)
+    master.start(CAM_MODE, CAM_INDEX)
     master.cleanup()
 
 if __name__ == "__main__":
