@@ -83,6 +83,8 @@ class MarkerDetector:
 
     def __init__(self):
         self.ui = UserInterface()
+        self.nb_current_markers = 0
+        self.nb_current_quadrangles = 0
 
     def __call__(self, img_orig):
         self.img_orig = img_orig
@@ -149,7 +151,6 @@ class MarkerDetector:
         fic = open("markers_ref.json", "r")
         _str = fic.read()
         markers_array = json.loads(_str)
-        print len(markers_array)
         return markers_array
 
     def get_bit_matrix(self, img, split_coeff):
@@ -168,7 +169,6 @@ class MarkerDetector:
         return bit_matrix
 
     def get_markers(self, img_gray, positions):
-        print("Quadrangles detected = {}".format(len(positions)))
         markers = self.get_ref_markers()
         detected_markers = {}
         for i in range(len(positions)):
@@ -177,11 +177,16 @@ class MarkerDetector:
             mat = self.get_bit_matrix(img, 8)
             try:
                 id_ = markers.index(mat)
-                detected_markers[id_] = positions[i]
-                self.ui.display('marker2D_{} id={}'.format(i, id_), img, (i*300, 800))
             except:
                 pass
-        print("Markers detected = {}".format(len(detected_markers)))
+            else:
+                detected_markers[id_] = positions[i]
+                self.ui.display('marker2D_{} id={}'.format(i, id_), img, (i*300, 800))
+
+        if self.nb_current_markers != len(detected_markers) or self.nb_current_quadrangles != len(positions):
+            self.nb_current_markers = len(detected_markers)
+            self.nb_current_quadrangles = len(positions)
+            print("Quadrangles detected = {}, Markers detected = {}".format(len(positions), len(detected_markers)))
         return detected_markers
 
     def sort_corners(self, corners):
@@ -259,9 +264,9 @@ CAM_INDEX = 0
 
 def main():
     master = Master()
-    #master.start(IMG_MODE, IMG_EXAMPLE1)
+    master.start(IMG_MODE, IMG_EXAMPLE1)
     #master.start(VID_MODE, VID_EXAMPLE1)
-    master.start(CAM_MODE, CAM_INDEX)
+    #master.start(CAM_MODE, CAM_INDEX)
     master.cleanup()
 
 if __name__ == "__main__":
