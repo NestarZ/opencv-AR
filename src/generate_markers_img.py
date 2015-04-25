@@ -1,6 +1,7 @@
 from PIL import Image
 import itertools
 import numpy as np
+import json
 
 def generate_all_markers(inner, outer, size, max_range=100):
     ''' Returns a PNG Image Marker generated using PIL'''
@@ -34,9 +35,9 @@ def generate_all_markers(inner, outer, size, max_range=100):
         else:
             unique_markers.append(unique_matrices[i])
 
-
-    print('nb_combi={}, unique_matrices={}, unique_markers={}'.format(nb_combi, len(unique_matrices), len(unique_markers)))
-    for i in range(min(max_range, len(unique_markers))):
+    #print('nb_combi={}, unique_matrices={}, unique_markers={}'.format(nb_combi, len(unique_matrices), len(unique_markers)))
+    unique_markers = unique_markers[:min(max_range, len(unique_markers))]
+    for i in range(len(unique_markers)):
         w, h = size
         col_index, line_index = -1, -1
         color = unique_markers[i][line_index][col_index]
@@ -49,9 +50,8 @@ def generate_all_markers(inner, outer, size, max_range=100):
                     color = unique_markers[i][line_index][col_index]
                     line_index += 1
                 px[x, y] = color
-
         im.save('../media/markers/marker_{}.png'.format(i+1), 'PNG')
-    return min(max_range, len(unique_markers))
+    return unique_markers
 
 
 def main():
@@ -60,8 +60,14 @@ def main():
     max_markers = 100
     print('>> Generate {0}x{0} markers (inner={1}, outer={2}, pxsize={3}px)'.format(
     outer+inner+outer, inner, outer, img_size))
-    nb = generate_all_markers(inner, outer, img_size, max_markers)
-    print('>> {} markers has been created'.format(nb))
+    bit_matrices = generate_all_markers(inner, outer, img_size, max_markers)
+    print('>> {} markers has been created'.format(len(bit_matrices)))
+    print('>> Create JSON with {} created markers'.format(len(bit_matrices)))
+    fic = open("ref_markers.json", 'w')
+    bit_matrices = [m.tolist() for m in bit_matrices]
+    fic.write(json.dumps(list(bit_matrices)))
+    fic.close()
+    print('>> JSON done (markers.json)')
 
 if __name__ == '__main__':
     main()
