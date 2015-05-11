@@ -70,8 +70,8 @@ class MediaPlayer(ShowBase):
 
         base.disableMouse()
 
-        
-        
+
+
 
     def stopsound(self):
         self.sound.stop()
@@ -129,7 +129,7 @@ class MediaPlayer(ShowBase):
 
 
 
-player = MediaPlayer("/home/mathieu/Documents/Github/opencv-AR/media/video/movement1.avi")
+player = MediaPlayer("/home/elias/git/opencv-AR/media/video/movement1.avi")
 
 
 player.run()

@@ -5,6 +5,13 @@ import cv2
 import numpy as np
 import json
 
+import direct.directbase.DirectStart
+from direct.showbase.DirectObject import DirectObject
+import direct.gui.DirectGui as directgui
+from direct.gui.OnscreenText import OnscreenText
+import panda3d.core
+import sys
+
 class UserInterface:
     def __init__(self):
         pass
@@ -210,10 +217,47 @@ class MarkerDetector:
         return np.float32([x for x in vertices])
 
 
-class Master:
+class World(DirectObject):
     def __init__(self):
         self.ui = UserInterface()
         self.markerdetector = MarkerDetector()
+        self.run = run
+
+    def get_cv_img(self):
+        self.img = self.capture.get_frame()
+        shape = self.img.shape
+        cv2.flip(self.img, 0, self.img) # cv2 image is upside down
+        self.tex = panda3d.core.Texture("detect")
+        self.tex.setCompression(panda3d.core.Texture.CMOff) # 1 to 1 copying - default, so is unnecessary
+        self.tex.setup2dTexture(shape[1], shape[0],
+                                    panda3d.core.Texture.TUnsignedByte, panda3d.core.Texture.FRgb)#FRgba8) # 3,4 channel
+        self.tex.makeRamImage() # weird flicking results if omit this.
+        self.tex.setRamMipmapPointerFromInt(self.img.ctypes.data, 0, 640*480*3)
+
+    def set_capture(self, capture):
+        self.capture = capture
+
+    def start(self):
+        base.setBackgroundColor(0.5,0.5,0.5)
+        sm = panda3d.core.CardMaker('bg')
+        sm.setFrameFullscreenQuad()
+        self.test = render2d.attachNewNode(sm.generate(),2)
+        self.accept('escape', sys.exit)
+        taskMgr.add(self.turn, "turn")
+
+    def turn(self, task):
+        if self.ui.exit:
+            sys.exit()
+        self.get_cv_img()
+        self.test.setTexture(self.tex)
+        img = self.capture.get_frame()
+        self.markerdetector(img)
+        return task.cont
+
+
+class Master:
+    def __init__(self):
+        self.world = World()
 
     def start(self, mode, material_id):
         self.mode = mode
@@ -224,20 +268,9 @@ class Master:
         elif mode == IMG_MODE:
             self.capture = ImageController(material_id)
         self.capture.open()
-        self.main_loop()
-
-    def main_loop(self):
-        first = True
-        #while True:
-        while not self.ui.exit:
-            if self.mode == IMG_MODE and not first:
-                continue
-            img = self.capture.get_frame()
-            if img is None: break
-            self.ui.display('raw', img)
-            cv2.moveWindow('raw', 0, 0)
-            self.markerdetector(img)
-            first = False
+        self.world.set_capture(self.capture)
+        self.world.start()
+        self.world.run()
 
     def cleanup(self):
         """ Closes all OpenCV windows and releases video capture device. """
