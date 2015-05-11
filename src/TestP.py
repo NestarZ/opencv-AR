@@ -12,7 +12,7 @@ loadPrcFileData("", "show-frame-rate-meter #t") # let me see the frames per seco
 
 
 # Mettre le cube dans la scene
-cube = loader.loadModel('cube')
+cube = loader.loadModel('../media/mesh/cube')
 cube.setPos(0,0,0)
 cube.reparentTo(render)
 # Positionner la camera
@@ -21,12 +21,12 @@ camera.lookAt(0.0, 0.0, -6.0)
 base.disableMouse()
 
 def animer(task):
-	
 	print(task.time)
 	cube.setHpr(task.time*200, 0, 0)
 	#cube.setPos(0, task.time, 0)
 	return Task.cont
-taskMgr.add(animer, "animer")
+#taskMgr.add(animer, "animer")
+
 
 
 # lancer le graphe de scene
