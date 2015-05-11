@@ -12,7 +12,7 @@ loadPrcFileData("", "show-frame-rate-meter #t") # let me see the frames per seco
 
 
 # Mettre le cube dans la scene
-cube = loader.loadModel('../media/mesh/cube')
+cube = loader.loadModel('cube')
 cube.setPos(0,0,0)
 cube.reparentTo(render)
 # Positionner la camera

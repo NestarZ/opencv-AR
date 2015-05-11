@@ -21,6 +21,8 @@ def addTitle(text):
                         fg=(1, 1, 1, 1), shadow=(0, 0, 0, 1))
 
 
+
+
 class MediaPlayer(ShowBase):
 
     def __init__(self, media_file):
@@ -33,6 +35,9 @@ class MediaPlayer(ShowBase):
         self.inst2 = addInstructions(0.12, "S: Stop and Rewind")
         self.inst3 = addInstructions(0.18,
             "M: Slow Motion / Normal Motion toggle")
+
+        self.camPos = "{} {} {}".format(camera.getX(),camera.getY(),camera.getZ())
+        self.inst4 = addInstructions(0.24, self.camPos)
 
         # Load the texture. We could use loader.loadTexture for this,
         # but we want to make sure we get a MovieTexture, since it
@@ -50,19 +55,23 @@ class MediaPlayer(ShowBase):
 
         # Now place the card in the scene graph and apply the texture to it.
         card = NodePath(cm.generate())
-        card.reparentTo(self.render2d)
+        card.reparentTo(self.render)
         card.setTexture(self.tex)
 
+        self.add_mesh('../media/mesh/cube',0,0,0,0,0,0,0.2)
+
         self.sound = loader.loadSfx(media_file)
-        # Synchronize the video to the sound.
         self.tex.synchronizeTo(self.sound)
 
-        self.accept('p', self.playpause)
-        self.accept('P', self.playpause)
-        self.accept('s', self.stopsound)
-        self.accept('S', self.stopsound)
-        self.accept('m', self.fastforward)
-        self.accept('M', self.fastforward)
+        self.initializeKey()
+
+        camera.setPos(0.0, -4.0, 0)
+        camera.lookAt(0.0, 0.0, 0.0)
+
+        base.disableMouse()
+
+        
+        
 
     def stopsound(self):
         self.sound.stop()
@@ -87,5 +96,40 @@ class MediaPlayer(ShowBase):
         else:
             self.sound.play()
 
+    def initializeKey(self):
+        self.accept('p', self.playpause)
+        self.accept('P', self.playpause)
+        self.accept('s', self.stopsound)
+        self.accept('S', self.stopsound)
+        self.accept('m', self.fastforward)
+        self.accept('M', self.fastforward)
+        self.accept('arrow_up', lambda : self.move_object(camera,0,2,0))
+        self.accept('arrow_down', lambda : self.move_object(camera,0,-2,0))
+        self.accept('arrow_left', lambda : self.move_object(camera,2,0,0))
+        self.accept('arrow_right', lambda : self.move_object(camera,-2,0,0))
+        self.accept('w', lambda : self.move_object(camera,0,0,2))
+        self.accept('x', lambda : self.move_object(camera,0,0,-2))
+
+    def move_object(self, objet, dx, dy, dz):
+        objet.setX(objet.getX() + dx)
+        objet.setY(objet.getY() + dy)
+        objet.setZ(objet.getZ() + dz)
+
+        self.camPos = "{} {} {}".format(camera.getX(),camera.getY(),camera.getZ())
+        self.inst4.setText(self.camPos)
+
+
+    def add_mesh(self,path,x,y,z,rx,ry,rz,scale):
+        assert isinstance(path, str)
+
+        cube = loader.loadModel(path)
+        cube.setPos(x,y,z)
+        cube.setScale(scale)
+        cube.reparentTo(self.render)
+
+
+
 player = MediaPlayer("/home/mathieu/Documents/Github/opencv-AR/media/video/movement1.avi")
+
+
 player.run()
