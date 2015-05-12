@@ -289,14 +289,6 @@ class World(ShowBase):
 
         taskMgr.add(self.turn, "turn")
 
-    def add_mesh(self,path, id_obj):
-        assert isinstance(path, str)
-        if id_obj not in self.obj_list:
-            cube = loader.loadModel(path)
-            cube.setScale(0.0005)
-            cube.reparentTo(self.objNode)
-            self.obj_list[id_obj] = cube
-
     def turn(self, task):
         if self.ui.exit:
             pass
@@ -310,11 +302,10 @@ class World(ShowBase):
             if id_obj not in self.obj_list:
                 self.obj_list[id_obj] = MeshController(id_obj)
                 self.obj_list[id_obj].reparentTo(self.objNode)
-            mesh = self.obj_list[id_obj]
-            mesh.obj.show()
+            self.obj_list[id_obj].obj.show()
             (x, y, z, scale) = ((pos[0][0] - 320) / 320.0, 0, (pos[0][1] - 180)
                          / -180.0, 0.0005)
-            mesh.setPosScale((x, y, z), scale, self.card)
+            self.obj_list[id_obj].setPosScale((x, y, z), scale, self.card)
         self.objectPos = 'detect : {} {}'.format(self.markerdetector.nb_current_markers, self.markers.keys())
         self.inst1.setText(self.objectPos)
         return task.cont
