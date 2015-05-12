@@ -193,11 +193,9 @@ class MarkerDetector:
                     self.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
                     break
 
-        #if self.nb_current_markers != len(detected_markers) or self.nb_current_quadrangles != len(positions):
-        #    self.nb_current_markers = len(detected_markers)
-        #    self.nb_current_quadrangles = len(positions)
-        #    print("Quadrangles detected = {}, Markers detected = {} (id: {})".format(
-        #    len(positions), len(detected_markers), detected_markers.keys()))
+        if self.nb_current_markers != len(detected_markers) or self.nb_current_quadrangles != len(positions):
+            self.nb_current_markers = len(detected_markers)
+            self.nb_current_quadrangles = len(positions)
 
         return detected_markers
 
@@ -221,16 +219,17 @@ class MarkerDetector:
 
 
 class MeshController:
-    dict_mesh = {0:'cube'}
+    dict_mesh = {0:'cup', 1:'cup', 2:'cup'}
     path = '../media/mesh/'
     def __init__(self, id_=0):
-        id_=0
         self.obj_name = MeshController.dict_mesh[id_]
         self.obj = loader.loadModel(MeshController.path + self.obj_name)
 
-    def set(self, pos3d, scale):
-        pos3d = pos3d.tolist()
-        self.obj.setPos(pos3d[0][0][0],pos3d[1][0][0],1) # to test
+    def setPosScale(self, pos3d, scale, relative=None):
+        if relative:
+            self.obj.setPos(relative, pos3d[0],pos3d[1],pos3d[2])
+        else:
+            self.obj.setPos(pos3d[0],pos3d[1],pos3d[2])
         self.obj.setScale(scale)
 
     def reparentTo(self, parent):
@@ -306,23 +305,24 @@ class World(ShowBase):
         self.card.setTexture(tex)
         self.markers = self.markerdetector(img)
         for mesh in self.obj_list.values():
-            mesh.hide()
-        for id_obj, pos in self.markers.items():
+            mesh.obj.hide()
+        for (id_obj, pos) in self.markers.items():
             if id_obj not in self.obj_list:
-                self.add_mesh('../media/mesh/cup', id_obj)
-	    mesh = self.obj_list[id_obj]
-            mesh.show()
-	    x, y, z = (pos[0][0]-320)/320.0, 0, (pos[0][1]-180)/-180.0
-            mesh.setPos(self.card, x, y, z)
-            self.objectPos = "cube : {} {} {}".format(mesh.getX(),mesh.getY(),mesh.getZ())
-            self.inst1.setText(self.objectPos)
-	    print(id_obj, (x,y,z))
+                self.obj_list[id_obj] = MeshController(id_obj)
+                self.obj_list[id_obj].reparentTo(self.objNode)
+            mesh = self.obj_list[id_obj]
+            mesh.obj.show()
+            (x, y, z, scale) = ((pos[0][0] - 320) / 320.0, 0, (pos[0][1] - 180)
+                         / -180.0, 0.0005)
+            mesh.setPosScale((x, y, z), scale, self.card)
+        self.objectPos = 'detect : {} {}'.format(self.markerdetector.nb_current_markers, self.markers.keys())
+        self.inst1.setText(self.objectPos)
         return task.cont
 
     def addInstructions(self, pos, msg):
-        return OnscreenText(text=msg, style=1, fg=(0, 0, 0, 1), shadow=(1, 1, 1, 1),
+        return OnscreenText(text=msg, style=2, fg=(1, 1, 1, 1),
                             parent=base.a2dTopLeft, align=TextNode.ALeft,
-                            pos=(0.08, -pos - 0.04), scale=.06)
+                            pos=(0.08, - pos - 0.04), scale=.1)
 
     def addTitle(self, text):
         return OnscreenText(text=text, style=1, pos=(-0.1, 0.09), scale=.08,
