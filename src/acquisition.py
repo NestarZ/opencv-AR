@@ -149,8 +149,7 @@ class MarkerDetector:
     def homothetie_marker(self, img_orig, corners):
         # Find the perspective transfomation to get a rectangular 2D marker
         ideal_corners = np.float32([[0,0],[200,0],[0,200],[200,200]])
-        sorted_corners = self.sort_corners(corners)
-        M = cv2.getPerspectiveTransform(sorted_corners, ideal_corners)
+        M = cv2.getPerspectiveTransform(corners, ideal_corners)
         marker2D_img = cv2.warpPerspective(img_orig, M, (200,200))
         return marker2D_img
 
@@ -179,7 +178,8 @@ class MarkerDetector:
         ref_markers = self.get_ref_markers()
         detected_markers = {}
         for i in range(len(positions)):
-            sorted_corners = self.curve_to_quadrangle(positions[i])
+            corners = self.curve_to_quadrangle(positions[i])
+            sorted_corners = self.sort_corners(corners)
             img = self.homothetie_marker(img_gray, sorted_corners)
             img = self.do_threshold(img, 125)[1]
             detected_mat = self.get_bit_matrix(img, 6)
