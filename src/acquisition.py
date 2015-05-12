@@ -245,7 +245,6 @@ class World(ShowBase):
         self.obj_list = {}
         self.title = self.addTitle("AR Mathieu & Elias")
 
-
     def set_capture(self, capture):
         self.capture = capture
 
@@ -259,11 +258,8 @@ class World(ShowBase):
         return tex
 
     def start(self):
-        self.camPos = "{} {} {}".format(camera.getX(),camera.getY(),camera.getZ())
-        self.inst1 = self.addInstructions(0.24, self.camPos)
         self.objectPos = ""
-        self.inst2 = self.addInstructions(0.30, self.objectPos)
-
+        self.inst1 = self.addInstructions(0.30, self.objectPos)
 
         self.tex = self.get_cv_img()
 
@@ -276,8 +272,6 @@ class World(ShowBase):
         self.card = self.empty.attachNewNode(cm.generate())
         self.card.setTexture(self.tex)
         self.card.setScale(2)
-
-        self.initializeKey()
 
         camera.setPos(0.0, -60.0, 0)
         camera.lookAt(0.0, 0.0, 0.0)
@@ -295,22 +289,6 @@ class World(ShowBase):
         self.objNode.setLight(alnp)
 
         taskMgr.add(self.turn, "turn")
-
-    def initializeKey(self):
-        self.accept('arrow_up', lambda : self.move_object(camera,0,8,0))
-        self.accept('arrow_down', lambda : self.move_object(camera,0,-8,0))
-        self.accept('arrow_left', lambda : self.move_object(camera,8,0,0))
-        self.accept('arrow_right', lambda : self.move_object(camera,-8,0,0))
-        self.accept('w', lambda : self.move_object(camera,0,0,8))
-        self.accept('x', lambda : self.move_object(camera,0,0,-8))
-
-    def move_object(self, objet, dx, dy, dz):
-        objet.setX(objet.getX() + dx)
-        objet.setY(objet.getY() + dy)
-        objet.setZ(objet.getZ() + dz)
-
-        self.camPos = "{} {} {}".format(objet.getX(),objet.getY(),objet.getZ())
-        self.inst1.setText(self.camPos)
 
     def add_mesh(self,path, id_obj):
         assert isinstance(path, str)
@@ -337,8 +315,8 @@ class World(ShowBase):
 	    x, y, z = (pos[0][0]-320)/320.0, 0, (pos[0][1]-180)/-180.0
             mesh.setPos(self.card, x, y, z)
             self.objectPos = "cube : {} {} {}".format(mesh.getX(),mesh.getY(),mesh.getZ())
-            self.inst2.setText(self.objectPos)
-	print(id_obj, (x,y,z))
+            self.inst1.setText(self.objectPos)
+	    print(id_obj, (x,y,z))
         return task.cont
 
     def addInstructions(self, pos, msg):
