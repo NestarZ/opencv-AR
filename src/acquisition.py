@@ -7,7 +7,7 @@ import json
 
 import random
 from panda3d.core import *
-loadPrcFileData("", "window-title AR Mathieu & ELias")
+loadPrcFileData("", "window-title AR Mathieu & Elias")
 loadPrcFileData("", "win-size 640 360")
 
 from direct.showbase.DirectObject import DirectObject
@@ -225,12 +225,16 @@ class MeshController:
         self.obj_name = MeshController.dict_mesh[id_]
         self.obj = loader.loadModel(MeshController.path + self.obj_name)
 
-    def setPosScale(self, pos3d, scale, relative=None):
+    def setPosScale(self, pos3d, scale, rot,relative=None):
         if relative:
             self.obj.setPos(relative, pos3d[0],pos3d[1],pos3d[2])
         else:
             self.obj.setPos(pos3d[0],pos3d[1],pos3d[2])
         self.obj.setScale(scale)
+
+        self.obj.setHpr(rot[0],rot[1],rot[2])
+
+
 
     def reparentTo(self, parent):
         self.obj.reparentTo(parent)
@@ -272,6 +276,7 @@ class World(ShowBase):
         self.card.setTexture(self.tex)
         self.card.setScale(2)
 
+
         camera.setPos(0.0, -60.0, 0)
         camera.lookAt(0.0, 0.0, 0.0)
         lens = OrthographicLens()
@@ -287,9 +292,56 @@ class World(ShowBase):
         alnp = self.objNode.attachNewNode(alight)
         self.objNode.setLight(alnp)
 
+        plight = PointLight('plight')
+        plight.setColor(VBase4(0.5, 0.5, 0.5, 1))
+        plnp = self.objNode.attachNewNode(plight)
+        plnp.setPos(10, -60, 0)
+        self.objNode.setLight(plnp)
+
+
+
         taskMgr.add(self.turn, "turn")
 
+
     def turn(self, task):
+
+        def convertPosMarkerToPosWorld(pos):
+            """
+            return the position where the mesh should be in world
+            using the parameters 'pos' sent by cv2
+            """
+            def euclid(x,y):
+                return abs(x-y)
+
+
+            #calculate position for mesh
+            center = [0,0]
+            for elem in pos:
+                center[0] += elem[0]/4
+                center[1] += elem[1]/4
+            x = ((pos[0][0]+pos[2][0])/2 - 330) / 320.0
+            y = -25
+            z = (center[1] - 180) / -180.0
+
+
+            #adaptative scale, depending on how far the marker is
+            #the further the smaller
+            dx12 = euclid(pos[1][0],pos[2][0])
+            dx03 = euclid(pos[3][0],pos[0][0])
+            dy12 = euclid(pos[1][1],pos[2][1])
+            dy03 = euclid(pos[3][1],pos[0][1])
+            scale = dx12+dx03+dy12+dy03
+            scale = scale/250000
+
+            #calculate Rotation for mesh
+            rotX = 0
+            rotY = 25
+            rotZ = 0
+
+
+            return (x,y,z,scale, rotX, rotY, rotZ)
+
+
         if self.ui.exit:
             pass
         img = self.capture.get_frame()
@@ -303,9 +355,12 @@ class World(ShowBase):
                 self.obj_list[id_obj] = MeshController(id_obj)
                 self.obj_list[id_obj].reparentTo(self.objNode)
             self.obj_list[id_obj].obj.show()
-            (x, y, z, scale) = ((pos[0][0] - 320) / 320.0, 0, (pos[0][1] - 180)
-                         / -180.0, 0.0005)
-            self.obj_list[id_obj].setPosScale((x, y, z), scale, self.card)
+
+            #Need converter to stick to position, deal with rotation
+            (x, y, z, scale, rx, ry, rz) = convertPosMarkerToPosWorld(pos)
+
+            raw_input(pos)
+            self.obj_list[id_obj].setPosScale((x, y, z), scale, (rx,ry,rz), self.card)
         self.objectPos = 'detect : {} {}'.format(self.markerdetector.nb_current_markers, self.markers.keys())
         self.inst1.setText(self.objectPos)
         return task.cont
