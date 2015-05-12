@@ -5,12 +5,15 @@ import cv2
 import numpy as np
 import json
 
-import direct.directbase.DirectStart
+import random
+from panda3d.core import *
+loadPrcFileData("", "window-title AR Mathieu & ELias")
+loadPrcFileData("", "win-size 640 360")
+
 from direct.showbase.DirectObject import DirectObject
-import direct.gui.DirectGui as directgui
 from direct.gui.OnscreenText import OnscreenText
-import panda3d.core
-import sys
+from direct.showbase.ShowBase import ShowBase
+
 
 class UserInterface:
     def __init__(self):
@@ -143,9 +146,8 @@ class MarkerDetector:
             markers_contours.append(approx_curve)
         return markers_contours
 
-    def homothetie_marker(self, img_orig, points):
+    def homothetie_marker(self, img_orig, corners):
         # Find the perspective transfomation to get a rectangular 2D marker
-        corners = self.curve_to_quadrangle(points)
         ideal_corners = np.float32([[0,0],[200,0],[0,200],[200,200]])
         sorted_corners = self.sort_corners(corners)
         M = cv2.getPerspectiveTransform(sorted_corners, ideal_corners)
@@ -177,7 +179,8 @@ class MarkerDetector:
         ref_markers = self.get_ref_markers()
         detected_markers = {}
         for i in range(len(positions)):
-            img = self.homothetie_marker(img_gray, positions[i])
+            sorted_corners = self.curve_to_quadrangle(positions[i])
+            img = self.homothetie_marker(img_gray, sorted_corners)
             img = self.do_threshold(img, 125)[1]
             detected_mat = self.get_bit_matrix(img, 6)
             for j in range(4):
@@ -186,15 +189,15 @@ class MarkerDetector:
                 except:
                     detected_mat = np.rot90(np.array(detected_mat)).tolist()
                 else:
-                    detected_markers[id_] = positions[i]
+                    detected_markers[id_] = sorted_corners.tolist()
                     self.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
                     break
 
-        if self.nb_current_markers != len(detected_markers) or self.nb_current_quadrangles != len(positions):
-            self.nb_current_markers = len(detected_markers)
-            self.nb_current_quadrangles = len(positions)
-            print("Quadrangles detected = {}, Markers detected = {} (id: {})".format(
-            len(positions), len(detected_markers), detected_markers.keys()))
+        #if self.nb_current_markers != len(detected_markers) or self.nb_current_quadrangles != len(positions):
+        #    self.nb_current_markers = len(detected_markers)
+        #    self.nb_current_quadrangles = len(positions)
+        #    print("Quadrangles detected = {}, Markers detected = {} (id: {})".format(
+        #    len(positions), len(detected_markers), detected_markers.keys()))
 
         return detected_markers
 
@@ -217,43 +220,136 @@ class MarkerDetector:
         return np.float32([x for x in vertices])
 
 
-class World(DirectObject):
+class MeshController:
+    dict_mesh = {0:'cube'}
+    path = '../media/mesh/'
+    def __init__(self, id_=0):
+        id_=0
+        self.obj_name = MeshController.dict_mesh[id_]
+        self.obj = loader.loadModel(MeshController.path + self.obj_name)
+
+    def set(self, pos3d, scale):
+        pos3d = pos3d.tolist()
+        self.obj.setPos(pos3d[0][0][0],pos3d[1][0][0],1) # to test
+        self.obj.setScale(scale)
+
+    def reparentTo(self, parent):
+        self.obj.reparentTo(parent)
+
+class World(ShowBase):
     def __init__(self):
+        ShowBase.__init__(self)
         self.ui = UserInterface()
         self.markerdetector = MarkerDetector()
         self.run = run
+        self.obj_list = {}
+        self.title = self.addTitle("AR Mathieu & Elias")
 
-    def get_cv_img(self):
-        self.img = self.capture.get_frame()
-        shape = self.img.shape
-        cv2.flip(self.img, 0, self.img) # cv2 image is upside down
-        self.tex = panda3d.core.Texture("detect")
-        self.tex.setCompression(panda3d.core.Texture.CMOff) # 1 to 1 copying - default, so is unnecessary
-        self.tex.setup2dTexture(shape[1], shape[0],
-                                    panda3d.core.Texture.TUnsignedByte, panda3d.core.Texture.FRgb)#FRgba8) # 3,4 channel
-        self.tex.makeRamImage() # weird flicking results if omit this.
-        self.tex.setRamMipmapPointerFromInt(self.img.ctypes.data, 0, 640*480*3)
 
     def set_capture(self, capture):
         self.capture = capture
 
+    def get_cv_img(self):
+        img = self.capture.get_frame()
+        img = cv2.flip(img, 0)
+        w, h = img.shape[0:2]
+        tex = Texture("webcam_img")
+        tex.setup2dTexture(h, w, Texture.TUnsignedByte, Texture.FRgb)
+        tex.setRamImage(img)
+        return tex
+
     def start(self):
-        base.setBackgroundColor(0.5,0.5,0.5)
-        sm = panda3d.core.CardMaker('bg')
-        sm.setFrameFullscreenQuad()
-        self.test = render2d.attachNewNode(sm.generate(),2)
-        self.accept('escape', sys.exit)
+        self.camPos = "{} {} {}".format(camera.getX(),camera.getY(),camera.getZ())
+        self.inst1 = self.addInstructions(0.24, self.camPos)
+        self.objectPos = ""
+        self.inst2 = self.addInstructions(0.30, self.objectPos)
+
+
+        self.tex = self.get_cv_img()
+
+        cm = CardMaker("Background")
+        cm.setFrameFullscreenQuad()
+
+        cm.setUvRange(self.tex)
+
+        self.empty = self.render.attachNewNode("BG")
+        self.card = self.empty.attachNewNode(cm.generate())
+        self.card.setTexture(self.tex)
+        self.card.setScale(2)
+
+        self.initializeKey()
+
+        camera.setPos(0.0, -60.0, 0)
+        camera.lookAt(0.0, 0.0, 0.0)
+        lens = OrthographicLens()
+        lens.setFilmSize(4, 4)
+        base.cam.node().setLens(lens)
+
+        self.objNode = self.empty.attachNewNode("Objets")
+
+        base.disableMouse()
+
+        alight = AmbientLight('alight')
+        alight.setColor(VBase4(0.2, 0.2, 0.2, 1))
+        alnp = self.objNode.attachNewNode(alight)
+        self.objNode.setLight(alnp)
+
         taskMgr.add(self.turn, "turn")
+
+    def initializeKey(self):
+        self.accept('arrow_up', lambda : self.move_object(camera,0,8,0))
+        self.accept('arrow_down', lambda : self.move_object(camera,0,-8,0))
+        self.accept('arrow_left', lambda : self.move_object(camera,8,0,0))
+        self.accept('arrow_right', lambda : self.move_object(camera,-8,0,0))
+        self.accept('w', lambda : self.move_object(camera,0,0,8))
+        self.accept('x', lambda : self.move_object(camera,0,0,-8))
+
+    def move_object(self, objet, dx, dy, dz):
+        objet.setX(objet.getX() + dx)
+        objet.setY(objet.getY() + dy)
+        objet.setZ(objet.getZ() + dz)
+
+        self.camPos = "{} {} {}".format(objet.getX(),objet.getY(),objet.getZ())
+        self.inst1.setText(self.camPos)
+
+    def add_mesh(self,path, id_obj):
+        assert isinstance(path, str)
+        if id_obj not in self.obj_list:
+            cube = loader.loadModel(path)
+            cube.setScale(0.0005)
+            cube.reparentTo(self.objNode)
+            self.obj_list[id_obj] = cube
 
     def turn(self, task):
         if self.ui.exit:
-            sys.exit()
-        self.get_cv_img()
-        self.test.setTexture(self.tex)
+            pass
         img = self.capture.get_frame()
-        self.markerdetector(img)
+        tex = self.get_cv_img()
+        self.card.setTexture(tex)
+        self.markers = self.markerdetector(img)
+        for mesh in self.obj_list.values():
+            mesh.hide()
+        for id_obj, pos in self.markers.items():
+            if id_obj not in self.obj_list:
+                self.add_mesh('../media/mesh/cup', id_obj)
+	    mesh = self.obj_list[id_obj]
+            mesh.show()
+	    x, y, z = (pos[0][0]-320)/320.0, 0, (pos[0][1]-180)/-180.0
+            mesh.setPos(self.card, x, y, z)
+            self.objectPos = "cube : {} {} {}".format(mesh.getX(),mesh.getY(),mesh.getZ())
+            self.inst2.setText(self.objectPos)
+	print(id_obj, (x,y,z))
         return task.cont
 
+    def addInstructions(self, pos, msg):
+        return OnscreenText(text=msg, style=1, fg=(0, 0, 0, 1), shadow=(1, 1, 1, 1),
+                            parent=base.a2dTopLeft, align=TextNode.ALeft,
+                            pos=(0.08, -pos - 0.04), scale=.06)
+
+    def addTitle(self, text):
+        return OnscreenText(text=text, style=1, pos=(-0.1, 0.09), scale=.08,
+                            parent=base.a2dBottomRight, align=TextNode.ARight,
+                            fg=(1, 1, 1, 1), shadow=(0, 0, 0, 1))
 
 class Master:
     def __init__(self):
@@ -282,8 +378,8 @@ CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
 # Devices
-IMG_EXAMPLE1 = 'markerQR.png'
-VID_EXAMPLE1 = 'movement1.mp4'
+IMG_EXAMPLE1 = 'marker1.jpg'
+VID_EXAMPLE1 = 'marker_vid.mp4'
 CAM_INDEX = 0
 
 def main():
