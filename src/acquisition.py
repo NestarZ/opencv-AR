@@ -219,11 +219,12 @@ class MarkerDetector:
 
 
 class MeshController:
-    dict_mesh = {0:'cup', 1:'cup', 2:'cup'}
+    dict_mesh = {0:'lantern', 1:'lantern', 2:'wall_S'}
     path = '../media/mesh/'
     def __init__(self, id_=0):
         self.obj_name = MeshController.dict_mesh[id_]
         self.obj = loader.loadModel(MeshController.path + self.obj_name)
+        self.time_hidden = 0
 
     def setPosScale(self, pos3d, scale, rot,relative=None):
         if relative:
@@ -234,10 +235,16 @@ class MeshController:
 
         self.obj.setHpr(rot[0],rot[1],rot[2])
 
-
-
     def reparentTo(self, parent):
         self.obj.reparentTo(parent)
+
+class MeshGenerator:
+    def __init__(self):
+        pass
+
+    def create_3d_marker(self, corners):
+        pass
+        return mesh
 
 class World(ShowBase):
     def __init__(self):
@@ -305,6 +312,8 @@ class World(ShowBase):
 
     def turn(self, task):
 
+
+
         def convertPosMarkerToPosWorld(pos):
             """
             return the position where the mesh should be in world
@@ -319,9 +328,15 @@ class World(ShowBase):
             for elem in pos:
                 center[0] += elem[0]/4
                 center[1] += elem[1]/4
-            x = ((pos[0][0]+pos[2][0])/2 - 330) / 320.0
-            y = -25
+
+
+            x = (center[0] - 320) / 320.0
+            y = 0
             z = (center[1] - 180) / -180.0
+
+            echo = (center, pos, x,z)
+
+
 
 
             #adaptative scale, depending on how far the marker is
@@ -331,7 +346,7 @@ class World(ShowBase):
             dy12 = euclid(pos[1][1],pos[2][1])
             dy03 = euclid(pos[3][1],pos[0][1])
             scale = dx12+dx03+dy12+dy03
-            scale = scale/250000
+            scale = scale/960
 
             #calculate Rotation for mesh
             rotX = 0
@@ -349,17 +364,19 @@ class World(ShowBase):
         self.card.setTexture(tex)
         self.markers = self.markerdetector(img)
         for mesh in self.obj_list.values():
-            mesh.obj.hide()
+            mesh.time_hidden += 1
+            if mesh.time_hidden > 3:
+                mesh.obj.hide()
         for (id_obj, pos) in self.markers.items():
             if id_obj not in self.obj_list:
                 self.obj_list[id_obj] = MeshController(id_obj)
                 self.obj_list[id_obj].reparentTo(self.objNode)
             self.obj_list[id_obj].obj.show()
+            self.obj_list[id_obj].time_hidden = 0
 
             #Need converter to stick to position, deal with rotation
             (x, y, z, scale, rx, ry, rz) = convertPosMarkerToPosWorld(pos)
 
-            raw_input(pos)
             self.obj_list[id_obj].setPosScale((x, y, z), scale, (rx,ry,rz), self.card)
         self.objectPos = 'detect : {} {}'.format(self.markerdetector.nb_current_markers, self.markers.keys())
         self.inst1.setText(self.objectPos)
@@ -409,8 +426,8 @@ CAM_INDEX = 0
 def main():
     master = Master()
     #master.start(IMG_MODE, IMG_EXAMPLE1)
-    master.start(VID_MODE, VID_EXAMPLE1)
-    #master.start(CAM_MODE, CAM_INDEX)
+    #master.start(VID_MODE, VID_EXAMPLE1)
+    master.start(CAM_MODE, CAM_INDEX)
     master.cleanup()
 
 if __name__ == "__main__":
