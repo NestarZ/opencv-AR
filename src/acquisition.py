@@ -95,7 +95,7 @@ class MarkerDetector:
         self.nb_current_markers = 0
         self.nb_current_quadrangles = 0
 
-    def __call__(self, img_orig):
+    def find(self, img_orig):
         w, h = img_orig.shape[1], img_orig.shape[0]
         img_gray = self.rgb_to_gray(img_orig)
         img_threshold = self.canny_algorithm(img_gray)
@@ -238,28 +238,28 @@ class MeshController:
     def reparentTo(self, parent):
         self.obj.reparentTo(parent)
 
-class MeshGenerator:
-    def __init__(self):
-        pass
+    def hide(self, time):
+        self.time_hidden += 1
+        if self.time_hidden > time:
+            self.obj.hide()
 
-    def create_3d_marker(self, corners):
-        pass
-        return mesh
+    def show(self):
+        self.time_hidden = 0
+        self.obj.show()
 
-class World(ShowBase):
-    def __init__(self):
-        ShowBase.__init__(self)
-        self.ui = UserInterface()
-        self.markerdetector = MarkerDetector()
-        self.run = run
-        self.obj_list = {}
-        self.title = self.addTitle("AR Mathieu & Elias")
-
-    def set_capture(self, capture):
+class VideoTexture:
+    def __init__(self, capture):
         self.capture = capture
+        self.image = None
 
-    def get_cv_img(self):
-        img = self.capture.get_frame()
+    def draw_3d_axis(self, corners, imgpts):
+        # draw 3d axis on each markers
+        corner = tuple(corners[0].ravel())
+        self.image = cv2.line(self.image, corner, tuple(imgpts[0].ravel()), (255,0,0), 5)
+        self.image = cv2.line(self.image, corner, tuple(imgpts[1].ravel()), (0,255,0), 5)
+        self.image = cv2.line(self.image, corner, tuple(imgpts[2].ravel()), (0,0,255), 5)
+
+    def get_cv_img(self, img):
         img = cv2.flip(img, 0)
         w, h = img.shape[0:2]
         tex = Texture("webcam_img")
@@ -267,53 +267,73 @@ class World(ShowBase):
         tex.setRamImage(img)
         return tex
 
-    def start(self):
-        self.objectPos = ""
-        self.inst1 = self.addInstructions(0.30, self.objectPos)
+    def get_tex(self):
+        #return current frame as a panda3d texture
+        return self.get_cv_img(self.get_image())
 
-        self.tex = self.get_cv_img()
+    def get_image(self):
+        return self.image
 
-        cm = CardMaker("Background")
-        cm.setFrameFullscreenQuad()
+    def update(self):
+        image = self.capture.get_frame()
+        if image is not None:
+            self.image = image
 
-        cm.setUvRange(self.tex)
+class World(ShowBase):
+    def __init__(self, capture):
+        ShowBase.__init__(self)
+        self.run = run
+        self.obj_list = {}
+        self.ui = UserInterface()
+        self.marker_detector = MarkerDetector()
+        self.video_texture = VideoTexture(capture)
+        self.caption1 = self.addCaption(0.30, "")
+        self.title = self.addTitle("AR Mathieu & Elias")
+        self.videoNode = self.render.attachNewNode("World")
+        self.objNode = self.videoNode.attachNewNode("Objets")
 
-        self.empty = self.render.attachNewNode("BG")
-        self.card = self.empty.attachNewNode(cm.generate())
-        self.card.setTexture(self.tex)
-        self.card.setScale(2)
-
-
+    def set_camera(self, lens_sizeX, lens_sizeY):
         camera.setPos(0.0, -60.0, 0)
         camera.lookAt(0.0, 0.0, 0.0)
         lens = OrthographicLens()
-        lens.setFilmSize(4, 4)
+        lens.setFilmSize(lens_sizeX, lens_sizeY)
         base.cam.node().setLens(lens)
 
-        self.objNode = self.empty.attachNewNode("Objets")
+    def set_light(self, light_type, name, color, pos=None):
+        light = light_type(name)
+        light.setColor(VBase4(*color))
+        light_np = self.objNode.attachNewNode(light)
+        if pos: light_np.setPos(*pos)
+        self.objNode.setLight(light_np)
 
+    def create_video_card(self, tex):
+        cm = CardMaker("VideoCard")
+        cm.setFrameFullscreenQuad()
+        cm.setUvRange(tex)
+        return self.videoNode.attachNewNode(cm.generate())
+
+    def start(self):
+        self.set_camera(2, 2)
+        self.set_light(AmbientLight, "alight", (0.2, 0.2, 0.2, 1))
+        self.set_light(PointLight, "plight", (0.5, 0.5, 0.5, 1), (10, -60, 0))
+        self.video_texture.update()
+        tex = self.video_texture.get_tex()
+        self.video_card = self.create_video_card(tex)
+        self.video_card.setTexture(tex)
+        taskMgr.add(self.update_video_texture, "update_video_texture")
+        taskMgr.add(self.update_mesh, "update_mesh")
         base.disableMouse()
 
-        alight = AmbientLight('alight')
-        alight.setColor(VBase4(0.2, 0.2, 0.2, 1))
-        alnp = self.objNode.attachNewNode(alight)
-        self.objNode.setLight(alnp)
+    def get_detected_markers(self):
+        return self.marker_detector.find(self.video_texture.get_image())
 
-        plight = PointLight('plight')
-        plight.setColor(VBase4(0.5, 0.5, 0.5, 1))
-        plnp = self.objNode.attachNewNode(plight)
-        plnp.setPos(10, -60, 0)
-        self.objNode.setLight(plnp)
+    def update_video_texture(self, task):
+        self.video_texture.update()
+        updated_tex = self.video_texture.get_tex()
+        self.video_card.setTexture(updated_tex)
+        return task.cont
 
-
-
-        taskMgr.add(self.turn, "turn")
-
-
-    def turn(self, task):
-
-
-
+    def update_mesh(self, task):
         def convertPosMarkerToPosWorld(pos):
             """
             return the position where the mesh should be in world
@@ -322,22 +342,17 @@ class World(ShowBase):
             def euclid(x,y):
                 return abs(x-y)
 
-
             #calculate position for mesh
             center = [0,0]
             for elem in pos:
                 center[0] += elem[0]/4
                 center[1] += elem[1]/4
 
-
             x = (center[0] - 320) / 320.0
             y = 0
             z = (center[1] - 180) / -180.0
 
             echo = (center, pos, x,z)
-
-
-
 
             #adaptative scale, depending on how far the marker is
             #the further the smaller
@@ -353,36 +368,23 @@ class World(ShowBase):
             rotY = 25
             rotZ = 0
 
-
             return (x,y,z,scale, rotX, rotY, rotZ)
 
-
-        if self.ui.exit:
-            pass
-        img = self.capture.get_frame()
-        tex = self.get_cv_img()
-        self.card.setTexture(tex)
-        self.markers = self.markerdetector(img)
+        self.markers = self.get_detected_markers()
+        if self.ui.exit: pass
         for mesh in self.obj_list.values():
-            mesh.time_hidden += 1
-            if mesh.time_hidden > 3:
-                mesh.obj.hide()
+            mesh.hide(3) # 3 frames until hide (prevent blink)
         for (id_obj, pos) in self.markers.items():
             if id_obj not in self.obj_list:
                 self.obj_list[id_obj] = MeshController(id_obj)
                 self.obj_list[id_obj].reparentTo(self.objNode)
-            self.obj_list[id_obj].obj.show()
-            self.obj_list[id_obj].time_hidden = 0
-
+            self.obj_list[id_obj].show()
             #Need converter to stick to position, deal with rotation
             (x, y, z, scale, rx, ry, rz) = convertPosMarkerToPosWorld(pos)
-
-            self.obj_list[id_obj].setPosScale((x, y, z), scale, (rx,ry,rz), self.card)
-        self.objectPos = 'detect : {} {}'.format(self.markerdetector.nb_current_markers, self.markers.keys())
-        self.inst1.setText(self.objectPos)
+            self.obj_list[id_obj].setPosScale((x, y, z), scale, (rx,ry,rz), self.videoNode)
         return task.cont
 
-    def addInstructions(self, pos, msg):
+    def addCaption(self, pos, msg):
         return OnscreenText(text=msg, style=2, fg=(1, 1, 1, 1),
                             parent=base.a2dTopLeft, align=TextNode.ALeft,
                             pos=(0.08, - pos - 0.04), scale=.1)
@@ -394,7 +396,9 @@ class World(ShowBase):
 
 class Master:
     def __init__(self):
-        self.world = World()
+        self.world = object()
+        self.capture = object()
+        self.mode = 0
 
     def start(self, mode, material_id):
         self.mode = mode
@@ -405,7 +409,7 @@ class Master:
         elif mode == IMG_MODE:
             self.capture = ImageController(material_id)
         self.capture.open()
-        self.world.set_capture(self.capture)
+        self.world = World(self.capture)
         self.world.start()
         self.world.run()
 
@@ -426,8 +430,8 @@ CAM_INDEX = 0
 def main():
     master = Master()
     #master.start(IMG_MODE, IMG_EXAMPLE1)
-    #master.start(VID_MODE, VID_EXAMPLE1)
-    master.start(CAM_MODE, CAM_INDEX)
+    master.start(VID_MODE, VID_EXAMPLE1)
+    #master.start(CAM_MODE, CAM_INDEX)
     master.cleanup()
 
 if __name__ == "__main__":
