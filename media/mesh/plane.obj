@@ -1,0 +1,11 @@
+# Blender v2.69 (sub 0) OBJ File: ''
+# www.blender.org
+mtllib plane.mtl
+o Cube
+v 0.940985 1.603773 -0.868741
+v 0.940985 1.603773 1.131259
+v -1.059015 1.603773 1.131259
+v -1.059015 1.603773 -0.868741
+usemtl Material
+s off
+f 1 2 3 4

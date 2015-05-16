@@ -1,0 +1,22 @@
+<Group> Cube {
+  <Group> defaultgroup {
+    <VertexPool> defaultgroup {
+      <Vertex> 0 {
+        0.940985 1.60377 -0.868741
+      }
+      <Vertex> 1 {
+        0.940985 1.60377 1.13126
+      }
+      <Vertex> 2 {
+        -1.05902 1.60377 1.13126
+      }
+      <Vertex> 3 {
+        -1.05902 1.60377 -0.868741
+      }
+    }
+    <Polygon> {
+      <Normal> { 0 -1 0 }
+      <VertexRef> { 0 1 2 3 <Ref> { defaultgroup } }
+    }
+  }
+}

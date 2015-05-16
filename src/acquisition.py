@@ -230,9 +230,10 @@ class MarkerDetector:
         return np.float32([x for x in vertices])
 
 class MeshController:
-    dict_mesh = {0:'lantern', 1:'lantern', 2:'wall_S'}
+    dict_mesh = {0:'lantern', 1:'lantern', 2:'wall_S', 3:'plane'}
     path = '../media/mesh/'
     def __init__(self, id_=0):
+        id_ = 3
         self.obj_name = MeshController.dict_mesh[id_]
         self.obj = loader.loadModel(MeshController.path + self.obj_name)
         self.time_hidden = 0
@@ -322,10 +323,13 @@ class World(ShowBase):
         self.objNode = self.videoNode.attachNewNode("Objets")
         self.camera_matrix, self.distortion_coeffs = camera_param
 
+        
+
     def set_camera(self, lens_sizeX, lens_sizeY):
-        camera.setPos(0.0, -60.0, 0)
+        camera.setPos(0.0, -3.75, 0)
         camera.lookAt(0.0, 0.0, 0.0)
-        lens = OrthographicLens()
+        #lens = OrthographicLens() #pos is -60
+        lens = PerspectiveLens()
         lens.setFilmSize(lens_sizeX, lens_sizeY)
         base.cam.node().setLens(lens)
 
@@ -364,7 +368,7 @@ class World(ShowBase):
         return task.cont
 
     def update_mesh(self, task):
-        def convertPosMarkerToPosWorld(pos):
+        def convertPosMarkerToPosWorld(obj, pos):
             """
             return the position where the mesh should be in world
             using the parameters 'pos' sent by cv2
@@ -372,6 +376,7 @@ class World(ShowBase):
             def euclid(x,y):
                 return abs(x-y)
 
+        
             #calculate position for mesh
             center = [0,0]
             for elem in pos:
@@ -379,10 +384,16 @@ class World(ShowBase):
                 center[1] += elem[1]/4
 
             x = (center[0] - 320) / 320.0
-            y = 0
+            y = -0.4
             z = (center[1] - 180) / -180.0
 
-            echo = (center, pos, x,z)
+
+            pos = np.array(pos)
+            #ObjPos is an array of the square's coordinate in space, needed for solvePnp
+            #Dunno if used correctly, but seems to give something 
+            objPos = np.array([(x+i,y+j,z) for i in (-0.2,0.2) for j in(-0.1,0.1)])
+
+            _ret, rot, trans = cv2.solvePnP(objPos, pos, self.camera_matrix, self.distortion_coeffs)
 
             #adaptative scale, depending on how far the marker is
             #the further the smaller
@@ -392,13 +403,13 @@ class World(ShowBase):
             dy03 = euclid(pos[3][1],pos[0][1])
             scale = dx12+dx03+dy12+dy03
             scale = scale/960
+            scale = 0.2
+
 
             #calculate Rotation for mesh
-            rotX = 0
-            rotY = 25
-            rotZ = 0
 
-            return (x,y,z,scale, rotX, rotY, rotZ)
+
+            return (x,y,z,scale, rot[0], rot[1], rot[2])
 
         self.markers = self.get_detected_markers()
         if self.ui.exit: pass
@@ -410,7 +421,7 @@ class World(ShowBase):
                 self.obj_list[id_obj].reparentTo(self.objNode)
             self.obj_list[id_obj].show()
             #Need converter to stick to position, deal with rotation
-            (x, y, z, scale, rx, ry, rz) = convertPosMarkerToPosWorld(pos)
+            (x, y, z, scale, rx, ry, rz) = convertPosMarkerToPosWorld(self.obj_list[id_obj].obj, pos)
             self.obj_list[id_obj].setPosScale((x, y, z), scale, (rx,ry,rz), self.videoNode)
         return task.cont
 
