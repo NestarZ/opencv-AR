@@ -4,7 +4,7 @@
 import cv2
 import numpy as np
 import json
-
+import glob
 import random
 from panda3d.core import *
 loadPrcFileData("", "window-title AR Mathieu & Elias")
@@ -25,7 +25,10 @@ class UserInterface:
 
     @classmethod
     def display(cls, caption, img, coordxy=None):
-        cv2.imshow(caption, img)
+        try:
+            cv2.imshow(caption, img)
+        except:
+            print "Empty image, can't display ({})".format(caption)
         if coordxy:
             assert isinstance(coordxy, tuple) and len(coordxy) == 2
             assert all(isinstance(coord, int) for coord in coordxy)
@@ -47,19 +50,27 @@ class Capture(object):
         pass
 
 class ImageController(Capture):
-    def __init__(self, material_id):
+    def __init__(self, material_id, **kwargs):
         super(ImageController, self).__init__(material_id)
-        self.path = '../media/img/'
+        self.path = '../media/img/' if not kwargs.get('absolute', False) else ''
+        self.batch = kwargs.get('batch', False)
+        self.regex = kwargs.get('regex', '*.jpg')
 
     def open(self):
         file_path = self.path + self.material_id
-        self.img = cv2.imread(file_path)
-        self.img = cv2.resize(self.img, (700,500), interpolation=cv2.INTER_AREA)
-        if self.img is None:
-            raise Exception('No image to read')
+        if self.batch:
+            self.pack = glob.glob(file_path+self.regex)
+        else:
+            self.img = cv2.imread(file_path)
+            self.img = cv2.resize(self.img, (700,500), interpolation=cv2.INTER_AREA)
+            if self.img is None:
+                raise Exception('No image to read')
 
     def get_frame(self):
-        return self.img
+        if self.batch and not self.pack:
+             print 'No more image to analyze in {}'.format(self.path+self.material_id)
+             return None
+        return self.img if not self.batch else cv2.resize(cv2.imread(self.pack.pop()), (700,500), interpolation=cv2.INTER_AREA)
 
 class VideoController(Capture):
     def __init__(self, material_id):
@@ -188,6 +199,7 @@ class MarkerDetector:
                     id_ = ref_markers.index(detected_mat)
                 except:
                     detected_mat = np.rot90(np.array(detected_mat)).tolist()
+                    #sorted_corners = np.rot90(sorted_corners) # Dont work, il faudrait echanger les positions
                 else:
                     detected_markers[id_] = sorted_corners.tolist()
                     self.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
@@ -217,7 +229,6 @@ class MarkerDetector:
         vertices = [p[0] for p in points]
         return np.float32([x for x in vertices])
 
-
 class MeshController:
     dict_mesh = {0:'lantern', 1:'lantern', 2:'wall_S'}
     path = '../media/mesh/'
@@ -246,6 +257,24 @@ class MeshController:
     def show(self):
         self.time_hidden = 0
         self.obj.show()
+
+class Camera:
+  def __init__(self,P):
+    """ Initialize P = K[R|t] camera model. """
+    self.P = P
+    self.K = None # calibration matrix
+    self.R = None # rotation
+    self.t = None # translation
+    self.c = None # camera center
+
+
+  def project(self,X):
+    """  Project points in X (4*n array) and normalize coordinates. """
+
+    x = dot(self.P,X)
+    for i in range(3):
+      x[i] /= x[2]
+    return x
 
 class VideoTexture:
     def __init__(self, capture):
@@ -280,7 +309,7 @@ class VideoTexture:
             self.image = image
 
 class World(ShowBase):
-    def __init__(self, capture):
+    def __init__(self, capture, camera_param):
         ShowBase.__init__(self)
         self.run = run
         self.obj_list = {}
@@ -291,6 +320,7 @@ class World(ShowBase):
         self.title = self.addTitle("AR Mathieu & Elias")
         self.videoNode = self.render.attachNewNode("World")
         self.objNode = self.videoNode.attachNewNode("Objets")
+        self.camera_matrix, self.distortion_coeffs = camera_param
 
     def set_camera(self, lens_sizeX, lens_sizeY):
         camera.setPos(0.0, -60.0, 0)
@@ -373,7 +403,7 @@ class World(ShowBase):
         self.markers = self.get_detected_markers()
         if self.ui.exit: pass
         for mesh in self.obj_list.values():
-            mesh.hide(3) # 3 frames until hide (prevent blink)
+            mesh.hide(4) # 4 frames until hide (prevent blink)
         for (id_obj, pos) in self.markers.items():
             if id_obj not in self.obj_list:
                 self.obj_list[id_obj] = MeshController(id_obj)
@@ -384,6 +414,9 @@ class World(ShowBase):
             self.obj_list[id_obj].setPosScale((x, y, z), scale, (rx,ry,rz), self.videoNode)
         return task.cont
 
+    def estimate_camera_position(self):
+        cv2.solvePnP(self.markers, imagePoints, self.camera_matrix, self.distortion_coeffs, rvec, vec, useExtrinsicGuess=False)
+
     def addCaption(self, pos, msg):
         return OnscreenText(text=msg, style=2, fg=(1, 1, 1, 1),
                             parent=base.a2dTopLeft, align=TextNode.ALeft,
@@ -393,6 +426,79 @@ class World(ShowBase):
         return OnscreenText(text=text, style=1, pos=(-0.1, 0.09), scale=.08,
                             parent=base.a2dBottomRight, align=TextNode.ARight,
                             fg=(1, 1, 1, 1), shadow=(0, 0, 0, 1))
+
+class CameraCalibration:
+    def __init__(self):
+        self.calibration_data = None
+        self.criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+        # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
+        self.objp = np.zeros((6*7,3), np.float32)
+        self.objp[:,:2] = np.mgrid[0:7,0:6].T.reshape(-1,2)
+        # Arrays to store object points and image points from all the images.
+        self.objpoints = [] # 3d point in real world space
+        self.imgpoints = [] # 2d points in image plane.
+
+    def get_calibration_data(self, camera_name):
+        try:
+            # Load previously saved data
+            print("Recherche de données de calibration de la camera ({}) en cours...".format(camera_name))
+            with np.load('{}.npz'.format(camera_name)) as X:
+                mtx, dist, _, _ = [X[i] for i in ('mtx','dist','rvecs','tvecs')]
+            print("Données de calibration de la camera ({}) trouvées !".format(camera_name))
+            return True, (mtx, dist)
+        except:
+            print("Aucune données de calibration n'a été trouvé.".format(camera_name))
+            return False, (None, None)
+
+    def calibration(self, img):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        cv2.imshow('grey',gray)
+        # Find the chess board corners
+        ret, corners = cv2.findChessboardCorners(gray, (6,7), None)
+        # If found, add object points, image points (after refining them)
+        if ret == True:
+            self.objpoints.append(self.objp)
+            cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),self.criteria)
+            self.imgpoints.append(corners)
+            # Draw and display the corners
+            corners2 = cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),self.criteria)
+            cv2.drawChessboardCorners(img, (7,6), corners2,ret)
+            ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(self.objpoints, self.imgpoints, gray.shape[::-1],None,None)
+            cv2.imshow('img',img)
+            cv2.waitKey(1)
+            self.calib_iter += 1
+            print("Iteration reussie de la calibration :", self.calib_iter)
+            return mtx, dist, rvecs, tvecs
+        return None, None, None, None
+
+    def save(self, camera_name, **kwargs):
+        with open("{}.npz".format(camera_name), 'w') as outfile:
+            print("Sauvegarde des parametres")
+            np.savez(outfile, **kwargs)
+
+    def run(self):
+        found, self.calibration_data = self.get_calibration_data("sony_camera")
+        if not found:
+            #capture = ImageController("/home/elias/OpenCV/opencv/samples/data/left", batch=True, absolute=True) # opencv chessboard
+            #capture = ImageController("laptop_camera/chessboard/", batch=True, regex='*.JPG') # laptop camera chessboard (img)
+            #capture = ImageController("sony_camera/chessboard/", batch=True, regex='*.png') # laptop camera chessboard (img)
+            capture = VideoController("sony_camera/chessboard/chessboard_vid_01.mp4") # sony camera chessboard (video)
+            capture.open()
+            image = capture.get_frame()
+            self.calib_iter = 0
+            while image is not None and self.calib_iter < 20:
+                UserInterface.display('lol', image)
+                cv2.waitKey(1)
+                mtx, dist, rvecs, tvecs = self.calibration(image)
+                image = capture.get_frame()
+            assert mtx is not None
+            self.save("sony_camera", mtx=mtx, dist=dist, rvecs=rvecs, tvecs=tvecs)
+            self.calibration_data = mtx, dist
+
+    def get_data(self):
+        assert self.calibration_data is not None, "No data"
+        print("Parametres de la camera :\n>> camera_matrix={}\n>> distortion_coeffs={}".format(self.calibration_data[0], self.calibration_data[1]))
+        return self.calibration_data
 
 class Master:
     def __init__(self):
@@ -409,14 +515,19 @@ class Master:
         elif mode == IMG_MODE:
             self.capture = ImageController(material_id)
         self.capture.open()
-        self.world = World(self.capture)
+        self.calibration = CameraCalibration()
+        self.calibration.run()
+        params = self.calibration.get_data()
+        self.world = World(self.capture, params)
         self.world.start()
         self.world.run()
+
 
     def cleanup(self):
         """ Closes all OpenCV windows and releases video capture device. """
         cv2.destroyAllWindows()
         self.capture.kill()
+
 
 # Modes
 CAM_MODE = 1
@@ -424,10 +535,12 @@ VID_MODE = 2
 IMG_MODE = 3
 # Devices
 IMG_EXAMPLE1 = 'marker1.jpg'
-VID_EXAMPLE1 = 'marker_vid.mp4'
+VID_EXAMPLE1 = 'laptop_camera/markers/marker_vid_03.mp4'
 CAM_INDEX = 0
 
 def main():
+    #x = CameraPosition()
+    #return
     master = Master()
     #master.start(IMG_MODE, IMG_EXAMPLE1)
     master.start(VID_MODE, VID_EXAMPLE1)
