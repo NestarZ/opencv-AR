@@ -35,9 +35,11 @@ class UserInterface:
             cv2.moveWindow(caption, coordxy[0], coordxy[1])
 
 class Capture(object):
-    def __init__(self, material_id):
+    DISPLAY_SIZE = (640,360)
+    def __init__(self, material_id, device_name):
         """ material_id - Filename or Camera Index """
         self.material_id = material_id
+        self.device_name = device_name
         self.img = None
 
     def open(self):
@@ -50,9 +52,9 @@ class Capture(object):
         pass
 
 class ImageController(Capture):
-    def __init__(self, material_id, **kwargs):
-        super(ImageController, self).__init__(material_id)
-        self.path = '../media/img/' if not kwargs.get('absolute', False) else ''
+    def __init__(self, material_id, device_name, **kwargs):
+        super(ImageController, self).__init__(material_id, device_name)
+        self.path = '../media/img/{}/'.format(device_name) if not kwargs.get('absolute', False) else ''
         self.batch = kwargs.get('batch', False)
         self.regex = kwargs.get('regex', '*.jpg')
 
@@ -62,30 +64,34 @@ class ImageController(Capture):
             self.pack = glob.glob(file_path+self.regex)
         else:
             self.img = cv2.imread(file_path)
-            self.img = cv2.resize(self.img, (700,500), interpolation=cv2.INTER_AREA)
+            self.img = cv2.resize(self.img, Capture.DISPLAY_SIZE, interpolation=cv2.INTER_AREA)
             if self.img is None:
                 raise Exception('No image to read')
 
     def get_frame(self):
         if self.batch and not self.pack:
-             print 'No more image to analyze in {}'.format(self.path+self.material_id)
-             return None
-        return self.img if not self.batch else cv2.resize(cv2.imread(self.pack.pop()), (700,500), interpolation=cv2.INTER_AREA)
+            print 'No more image to analyze in {}'.format(self.path+self.material_id)
+            return None
+        if self.batch:
+            self.img = cv2.resize(cv2.imread(self.pack.pop()), Capture.DISPLAY_SIZE, interpolation=cv2.INTER_AREA)
+        return self.img
 
 class VideoController(Capture):
-    def __init__(self, material_id):
-        super(VideoController, self).__init__(material_id)
-        self.path = '../media/video/'
+    def __init__(self, material_id, device_name):
+        super(VideoController, self).__init__(material_id, device_name)
+        self.path = '../media/video/{}/'.format(device_name)
 
     def open(self):
         file_path = self.path + self.material_id
         self.device = cv2.VideoCapture(file_path)
+        print(file_path, self.path, self.material_id)
 
     def get_frame(self):
-        ret, self.img = self.device.read()
+        ret, image = self.device.read()
         if (ret == False): # failed to capture
             print("Fail or end of capture.")
             return None
+        self.img = cv2.resize(image, Capture.DISPLAY_SIZE, interpolation=cv2.INTER_AREA)
         return self.img
 
     def kill(self):
@@ -202,7 +208,7 @@ class MarkerDetector:
                     #sorted_corners = np.rot90(sorted_corners) # Dont work, il faudrait echanger les positions
                 else:
                     detected_markers[id_] = sorted_corners.tolist()
-                    #elf.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
+                    #self.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
                     break
 
         if self.nb_current_markers != len(detected_markers) or self.nb_current_quadrangles != len(positions):
@@ -444,9 +450,10 @@ class World(ShowBase):
                             fg=(1, 1, 1, 1), shadow=(0, 0, 0, 1))
 
 class CameraCalibration:
-    def __init__(self):
+    def __init__(self, device_name):
+        self.device_name = device_name
         self.calibration_data = None
-        self.criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+        self.criteria = (cv2.TERM_CRITERIA_MAX_ITER + cv2.TERM_CRITERIA_EPS, 30, 0.1)
         # prepare object points, like (0,0,0), (1,0,0), (2,0,0) ....,(6,5,0)
         self.objp = np.zeros((6*7,3), np.float32)
         self.objp[:,:2] = np.mgrid[0:7,0:6].T.reshape(-1,2)
@@ -466,26 +473,42 @@ class CameraCalibration:
             print("Aucune données de calibration n'a été trouvé.".format(camera_name))
             return False, (None, None)
 
-    def calibration(self, img):
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        cv2.imshow('grey',gray)
-        # Find the chess board corners
-        ret, corners = cv2.findChessboardCorners(gray, (6,7), None)
-        # If found, add object points, image points (after refining them)
-        if ret == True:
-            self.objpoints.append(self.objp)
-            cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),self.criteria)
-            self.imgpoints.append(corners)
-            # Draw and display the corners
-            corners2 = cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),self.criteria)
-            cv2.drawChessboardCorners(img, (7,6), corners2,ret)
-            ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(self.objpoints, self.imgpoints, gray.shape[::-1],None,None)
-            UserInterface.display('chessboard_found', img)
-            cv2.waitKey(1)
-            self.calib_iter += 1
-            print("Iteration reussie de la calibration :", self.calib_iter)
-            return mtx, dist, rvecs, tvecs
-        return None, None, None, None
+    def add_chessboard_points(self, image):
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Arrays to store object points and image points from all the images.
+        object_corners = [] # 3d point in real world space
+        image_corners = [] # 2d points in image plane.
+        # 3D Scene Points
+        chessboard_size = (9, 6)
+        for i in range(chessboard_size[0]):
+            for j in range(chessboard_size[1]):
+                object_corners.append((i, j, 0.0))
+
+        successes = 0
+
+        # Get the chessboard corners
+        found, image_corners = cv2.findChessboardCorners(gray, chessboard_size, np.array(image_corners))
+        # Get subpixel accuracy on the corners
+        if found:
+            image_corners = cv2.cornerSubPix(gray, np.array(image_corners), (5,5), (-1,-1), self.criteria)
+            #If we have a good board, add it to our data
+            if len(image_corners) == chessboard_size[0]*chessboard_size[1]:
+                # Add image and scene points from one view
+                # 2D image points from one view
+                self.imgpoints.append(image_corners)
+                # corresponding 3D scene points
+                self.objpoints.append(object_corners)
+                successes += 1
+                cv2.drawChessboardCorners(image, chessboard_size, image_corners, found)
+                UserInterface.display('chessboard_found', image)
+                cv2.waitKey(1)
+        return successes
+
+    def calibration(self, shape):
+        print "Calibration ongoing... "
+        ret, mtx, dist, rvecs, tvecs  = cv2.calibrateCamera(np.array(self.objpoints).astype(np.float32), np.array(self.imgpoints).astype(np.float32), shape, None,None)
+        print "Calibration OK"
+        return mtx, dist, rvecs, tvecs
 
     def save(self, camera_name, **kwargs):
         with open("{}.npz".format(camera_name), 'w') as outfile:
@@ -493,22 +516,26 @@ class CameraCalibration:
             np.savez(outfile, **kwargs)
 
     def run(self):
-        found, self.calibration_data = self.get_calibration_data("laptop_camera")
+        found, self.calibration_data = self.get_calibration_data(self.device_name)
         if not found:
-            #capture = ImageController("/home/elias/OpenCV/opencv/samples/data/left", batch=True, absolute=True) # opencv chessboard
-            capture = ImageController("laptop_camera/chessboard/", batch=True, regex='*.JPG') # laptop camera chessboard (img)
-            #capture = ImageController("sony_camera/chessboard/", batch=True, regex='*.png') # laptop camera chessboard (img)
-            #capture = VideoController("sony_camera/chessboard/chessboard_vid_01.mp4") # sony camera chessboard (video)
+            #capture = ImageController("/home/elias/OpenCV/opencv/samples/data/left", self.device_name, batch=True, absolute=True) # opencv chessboard
+            capture = ImageController("chessboard/", self.device_name, batch=True, regex='*') # laptop camera chessboard (img)
+            #capture = ImageController("chessboard/", self.device_name, batch=True, regex='*.png') # laptop camera chessboard (img)
+            #capture = VideoController("chessboard/chessboard_vid_01.mp4", self.device_name) # sony camera chessboard (video)
             capture.open()
             image = capture.get_frame()
-            self.calib_iter = 0
-            while image is not None and self.calib_iter < 20:
-                params = self.calibration(image)
-                if params != (None,)*4:
-                    mtx, dist, rvecs, tvecs = params
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            shape = gray.shape[::-1]
+            calib_iter, i = 0, 0
+            while image is not None and calib_iter < 500:
+                successes = self.add_chessboard_points(image)
+                calib_iter += successes
+                i += 1
+                print "Calibration sucess rate : {}% ({})".format(100*calib_iter/i, i)
                 image = capture.get_frame()
+            mtx, dist, rvecs, tvecs = self.calibration(shape)
             assert (mtx, dist, rvecs, tvecs) != (None,)*4
-            self.save("laptop_camera", mtx=mtx, dist=dist, rvecs=rvecs, tvecs=tvecs)
+            self.save(self.device_name, mtx=mtx, dist=dist, rvecs=rvecs, tvecs=tvecs)
             self.calibration_data = mtx, dist
 
     def get_data(self):
@@ -520,9 +547,8 @@ class PoseEstimation:
     def __init__(self, capture, params):
         self.capture = capture
         self.marker_detector = MarkerDetector()
-        self.camera_matrix, self.distortion_coeffs = (np.array([[ 859.87780302,    0.        ,  682.3173388 ],
-               [   0.        ,  799.06029505,  382.57139684],
-               [   0.        ,    0.        ,    1.        ]]), np.array([[ 0.2529905 , -0.12695403, -0.01182944, -0.02478326, -0.48389559]]))
+        self.camera_matrix, self.distortion_coeffs = params
+        #self.camera_matrix, self.distortion_coeffs = (np.array([[ 859.87780302,0.,682.3173388 ],[0.,799.06029505,382.57139684],[   0.        ,    0.        ,    1.        ]]), np.array([[ 0.2529905 , -0.12695403, -0.01182944, -0.02478326, -0.48389559]]))
         self.marker_corners3d = []
         self.marker_corners3d.append((-0.5,-0.5,0))
         self.marker_corners3d.append((+0.5,-0.5,0))
@@ -536,8 +562,10 @@ class PoseEstimation:
     def run(self):
         while True:
             image = self.capture.get_frame()
-            markers = self.marker_detector.find(image)
-            self.estimate(image, markers)
+            if image is not None:
+                markers = self.marker_detector.find(image)
+                if markers:
+                    self.estimate(image, markers)
 
     def refine_corners(self, gray, markers_corners):
         precise_corners = []
@@ -581,16 +609,16 @@ class Master:
         self.capture = object()
         self.mode = 0
 
-    def start(self, mode, material_id):
+    def start(self, device, mode, material_id):
         self.mode = mode
         if mode == VID_MODE:
-            self.capture = VideoController(material_id)
+            self.capture = VideoController(material_id, device)
         elif mode == CAM_MODE:
-            self.capture = CamController(material_id)
+            self.capture = CamController(material_id, device)
         elif mode == IMG_MODE:
-            self.capture = ImageController(material_id)
+            self.capture = ImageController(material_id, device)
         self.capture.open()
-        self.calibration = CameraCalibration()
+        self.calibration = CameraCalibration(device)
         self.calibration.run()
         params = self.calibration.get_data()
         #self.world = World(self.capture, params)
@@ -608,18 +636,21 @@ class Master:
 CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
-# Devices
-IMG_EXAMPLE1 = 'marker1.jpg'
-VID_EXAMPLE1 = 'laptop_camera/markers/marker_vid_01.mp4'
+# Devices Source
+DEVICE_NAME = "sony_camera"
+#DEVICE_NAME = "laptop_camera"
+# Devices Type
+IMG_FILE = 'marker1.jpg'
+VID_FILE = 'markers/marker_vid_01.mp4'
 CAM_INDEX = 0
 
 def main():
     #x = CameraPosition()
     #return
     master = Master()
-    #master.start(IMG_MODE, IMG_EXAMPLE1)
-    master.start(VID_MODE, VID_EXAMPLE1)
-    #master.start(CAM_MODE, CAM_INDEX)
+    #master.start(DEVICE_NAME, IMG_MODE, IMG_FILE)
+    master.start(DEVICE_NAME, VID_MODE, VID_FILE)
+    #master.start(DEVICE_NAME, CAM_MODE, CAM_INDEX)
     master.cleanup()
 
 if __name__ == "__main__":
