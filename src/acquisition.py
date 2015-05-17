@@ -202,7 +202,7 @@ class MarkerDetector:
                     #sorted_corners = np.rot90(sorted_corners) # Dont work, il faudrait echanger les positions
                 else:
                     detected_markers[id_] = sorted_corners.tolist()
-                    self.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
+                    #elf.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
                     break
 
         if self.nb_current_markers != len(detected_markers) or self.nb_current_quadrangles != len(positions):
@@ -299,15 +299,15 @@ class VideoTexture:
 
     def get_tex(self):
         #return current frame as a panda3d texture
-        return self.get_cv_img(self.get_image())
+        if self.image is not None:
+            return self.get_cv_img(self.get_image())
+        return None
 
     def get_image(self):
         return self.image
 
     def update(self):
-        image = self.capture.get_frame()
-        if image is not None:
-            self.image = image
+        self.image = self.capture.get_frame()
 
 class World(ShowBase):
     def __init__(self, capture, camera_param):
@@ -322,8 +322,15 @@ class World(ShowBase):
         self.videoNode = self.render.attachNewNode("World")
         self.objNode = self.videoNode.attachNewNode("Objets")
         self.camera_matrix, self.distortion_coeffs = camera_param
+        self.marker_corners3d = []
+        self.marker_corners3d.append((-0.5,-0.5,0))
+        self.marker_corners3d.append((+0.5,-0.5,0))
+        self.marker_corners3d.append((+0.5,+0.5,0))
+        self.marker_corners3d.append((-0.5,+0.5,0))
+        self.marker_corners3d = np.array(self.marker_corners3d)
 
-        
+    def get_marker3d_corners(self):
+        return self.marker_corners3d
 
     def set_camera(self, lens_sizeX, lens_sizeY):
         camera.setPos(0.0, -3.75, 0)
@@ -364,8 +371,10 @@ class World(ShowBase):
     def update_video_texture(self, task):
         self.video_texture.update()
         updated_tex = self.video_texture.get_tex()
-        self.video_card.setTexture(updated_tex)
-        return task.cont
+        if updated_tex is not None:
+            self.video_card.setTexture(updated_tex)
+            return task.cont
+        return None
 
     def update_mesh(self, task):
         def convertPosMarkerToPosWorld(obj, pos):
@@ -376,7 +385,7 @@ class World(ShowBase):
             def euclid(x,y):
                 return abs(x-y)
 
-        
+
             #calculate position for mesh
             center = [0,0]
             for elem in pos:
@@ -389,11 +398,8 @@ class World(ShowBase):
 
 
             pos = np.array(pos)
-            #ObjPos is an array of the square's coordinate in space, needed for solvePnp
-            #Dunno if used correctly, but seems to give something 
-            objPos = np.array([(x+i,y+j,z) for i in (-0.2,0.2) for j in(-0.1,0.1)])
-
-            _ret, rot, trans = cv2.solvePnP(objPos, pos, self.camera_matrix, self.distortion_coeffs)
+            marker3d_corners = self.get_marker3d_corners()
+            _ret, rot, trans = cv2.solvePnP(marker3d_corners, pos, self.camera_matrix, self.distortion_coeffs)
 
             #adaptative scale, depending on how far the marker is
             #the further the smaller
@@ -407,7 +413,6 @@ class World(ShowBase):
 
 
             #calculate Rotation for mesh
-
 
             return (x,y,z,scale, rot[0], rot[1], rot[2])
 
@@ -475,7 +480,7 @@ class CameraCalibration:
             corners2 = cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),self.criteria)
             cv2.drawChessboardCorners(img, (7,6), corners2,ret)
             ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(self.objpoints, self.imgpoints, gray.shape[::-1],None,None)
-            cv2.imshow('img',img)
+            UserInterface.display('chessboard_found', img)
             cv2.waitKey(1)
             self.calib_iter += 1
             print("Iteration reussie de la calibration :", self.calib_iter)
@@ -488,28 +493,95 @@ class CameraCalibration:
             np.savez(outfile, **kwargs)
 
     def run(self):
-        found, self.calibration_data = self.get_calibration_data("sony_camera")
+        found, self.calibration_data = self.get_calibration_data("laptop_camera")
         if not found:
             #capture = ImageController("/home/elias/OpenCV/opencv/samples/data/left", batch=True, absolute=True) # opencv chessboard
-            #capture = ImageController("laptop_camera/chessboard/", batch=True, regex='*.JPG') # laptop camera chessboard (img)
+            capture = ImageController("laptop_camera/chessboard/", batch=True, regex='*.JPG') # laptop camera chessboard (img)
             #capture = ImageController("sony_camera/chessboard/", batch=True, regex='*.png') # laptop camera chessboard (img)
-            capture = VideoController("sony_camera/chessboard/chessboard_vid_01.mp4") # sony camera chessboard (video)
+            #capture = VideoController("sony_camera/chessboard/chessboard_vid_01.mp4") # sony camera chessboard (video)
             capture.open()
             image = capture.get_frame()
             self.calib_iter = 0
             while image is not None and self.calib_iter < 20:
-                UserInterface.display('lol', image)
-                cv2.waitKey(1)
-                mtx, dist, rvecs, tvecs = self.calibration(image)
+                params = self.calibration(image)
+                if params != (None,)*4:
+                    mtx, dist, rvecs, tvecs = params
                 image = capture.get_frame()
-            assert mtx is not None
-            self.save("sony_camera", mtx=mtx, dist=dist, rvecs=rvecs, tvecs=tvecs)
+            assert (mtx, dist, rvecs, tvecs) != (None,)*4
+            self.save("laptop_camera", mtx=mtx, dist=dist, rvecs=rvecs, tvecs=tvecs)
             self.calibration_data = mtx, dist
 
     def get_data(self):
         assert self.calibration_data is not None, "No data"
         print("Parametres de la camera :\n>> camera_matrix={}\n>> distortion_coeffs={}".format(self.calibration_data[0], self.calibration_data[1]))
         return self.calibration_data
+
+class PoseEstimation:
+    def __init__(self, capture, params):
+        self.capture = capture
+        self.marker_detector = MarkerDetector()
+        self.camera_matrix, self.distortion_coeffs = (np.array([[ 859.87780302,    0.        ,  682.3173388 ],
+               [   0.        ,  799.06029505,  382.57139684],
+               [   0.        ,    0.        ,    1.        ]]), np.array([[ 0.2529905 , -0.12695403, -0.01182944, -0.02478326, -0.48389559]]))
+        self.marker_corners3d = []
+        self.marker_corners3d.append((-0.5,-0.5,0))
+        self.marker_corners3d.append((+0.5,-0.5,0))
+        self.marker_corners3d.append((+0.5,+0.5,0))
+        self.marker_corners3d.append((-0.5,+0.5,0))
+        self.marker_corners3d = np.array(self.marker_corners3d)
+        self.marker_corners3d = self.marker_corners3d.astype(np.float32)
+        self.criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+        self.axis = np.float32([[3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3)
+
+    def run(self):
+        while True:
+            image = self.capture.get_frame()
+            markers = self.marker_detector.find(image)
+            self.estimate(image, markers)
+
+    def refine_corners(self, gray, markers_corners):
+        precise_corners = []
+        for corners in markers_corners:
+            for c in range(4):
+                precise_corners.append(np.array([corners[c]]))
+        a = np.array(precise_corners).astype(np.float32)
+        precise_corners = cv2.cornerSubPix(gray, a, (6,6), (-1,-1), self.criteria)
+        for i, corners in enumerate(markers_corners):
+            for c in range(4):
+                corners[c] = np.array(precise_corners[i*4 + c])
+        return markers_corners
+
+    def estimate(self, image, markers):
+        gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
+        markers_corners = np.array([points for points in markers.values()])
+        markers_corners = self.refine_corners(gray, markers_corners)
+        # Find the rotation and translation vectors.
+        objp = self.marker_corners3d
+        for marker_corners in markers_corners:
+            print(marker_corners)
+            print(objp)
+            _, rvecs, tvecs = cv2.solvePnP(objp, marker_corners, self.camera_matrix, self.distortion_coeffs)
+            print(rvecs)
+            print(tvecs)
+            print(self.camera_matrix)
+            print(self.distortion_coeffs)
+            # project 3D points to image plane
+            imgpts, jac = cv2.projectPoints(self.axis, rvecs, tvecs, self.camera_matrix, self.distortion_coeffs)
+            print(imgpts)
+            try:
+                image = self.draw(image,marker_corners,imgpts)
+            except:
+                pass
+        UserInterface.display('pose_estimation', image)
+        cv2.waitKey(1)
+
+    def draw(self, img, corners, imgpts):
+        corner = tuple(corners[0].ravel().astype(int))
+        img = cv2.line(img, corner, tuple(imgpts[0].ravel()), (255,0,0), 5)
+        img = cv2.line(img, corner, tuple(imgpts[1].ravel()), (0,255,0), 5)
+        img = cv2.line(img, corner, tuple(imgpts[2].ravel()), (0,0,255), 5)
+        return img
+
 
 class Master:
     def __init__(self):
@@ -529,16 +601,16 @@ class Master:
         self.calibration = CameraCalibration()
         self.calibration.run()
         params = self.calibration.get_data()
-        self.world = World(self.capture, params)
-        self.world.start()
-        self.world.run()
-
+        #self.world = World(self.capture, params)
+        #self.world.start()
+        #self.world.run()
+        self.pose_estimation = PoseEstimation(self.capture, params)
+        self.pose_estimation.run()
 
     def cleanup(self):
         """ Closes all OpenCV windows and releases video capture device. """
         cv2.destroyAllWindows()
         self.capture.kill()
-
 
 # Modes
 CAM_MODE = 1
@@ -546,7 +618,7 @@ VID_MODE = 2
 IMG_MODE = 3
 # Devices
 IMG_EXAMPLE1 = 'marker1.jpg'
-VID_EXAMPLE1 = 'laptop_camera/markers/marker_vid_03.mp4'
+VID_EXAMPLE1 = 'laptop_camera/markers/marker_vid_01.mp4'
 CAM_INDEX = 0
 
 def main():
