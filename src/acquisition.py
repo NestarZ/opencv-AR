@@ -62,6 +62,7 @@ class ImageController(Capture):
         file_path = self.path + self.material_id
         if self.batch:
             self.pack = glob.glob(file_path+self.regex)
+            assert self.pack, "No images in this folder with this regex contraint (folder:{}) (regex:{})".format(file_path, self.regex)
         else:
             self.img = cv2.imread(file_path)
             self.img = cv2.resize(self.img, Capture.DISPLAY_SIZE, interpolation=cv2.INTER_AREA)
@@ -84,12 +85,11 @@ class VideoController(Capture):
     def open(self):
         file_path = self.path + self.material_id
         self.device = cv2.VideoCapture(file_path)
-        print(file_path, self.path, self.material_id)
 
     def get_frame(self):
         ret, image = self.device.read()
         if (ret == False): # failed to capture
-            print("Fail or end of capture.")
+            print("No image to read, maybe video is over")
             return None
         self.img = cv2.resize(image, Capture.DISPLAY_SIZE, interpolation=cv2.INTER_AREA)
         return self.img
@@ -222,14 +222,14 @@ class MarkerDetector:
         assert angle in (-90,90,180,270), "Not an angle, need to be -90,90,180,270"
 
         if angle == 90:
-            rotation_vec = (3,1,2,4) 
+            rotation_vec = (3,1,2,4)
         elif angle == 180:
             rotation_vec = (4,3,2,1)
         else:
             rotation_vec = (2,4,1,3)
 
         rotated = [corners[i-1] for i in rotation_vec]
-        print(rotated)
+        #print(rotated)
 
         return np.array(rotated,'f')
 
@@ -532,23 +532,25 @@ class CameraCalibration:
             print("Sauvegarde des parametres")
             np.savez(outfile, **kwargs)
 
-    def run(self):
+    def run(self, capture=None):
         found, self.calibration_data = self.get_calibration_data(self.device_name)
         if not found:
-            #capture = ImageController("/home/elias/OpenCV/opencv/samples/data/left", self.device_name, batch=True, absolute=True) # opencv chessboard
-            capture = ImageController("chessboard/", self.device_name, batch=True, regex='*') # laptop camera chessboard (img)
-            #capture = ImageController("chessboard/", self.device_name, batch=True, regex='*.png') # laptop camera chessboard (img)
-            #capture = VideoController("chessboard/chessboard_vid_01.mp4", self.device_name) # sony camera chessboard (video)
-            capture.open()
+            if not capture:
+                #capture = ImageController("/home/elias/OpenCV/opencv/samples/data/left", self.device_name, batch=True, absolute=True) # opencv chessboard
+                capture = ImageController("chessboard/", self.device_name, batch=True, regex='*') # laptop camera chessboard (img)
+                #capture = ImageController("chessboard/", self.device_name, batch=True, regex='*.png') # laptop camera chessboard (img)
+                #capture = VideoController("chessboard/chessboard_vid_01.mp4", self.device_name) # sony camera chessboard (video)
+                #capture = CamController(CAM_INDEX, self.device_name)
+                capture.open()
             image = capture.get_frame()
             gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             shape = gray.shape[::-1]
             calib_iter, i = 0, 0
-            while image is not None and calib_iter < 500:
+            while image is not None and calib_iter < 15:
                 successes = self.add_chessboard_points(image)
                 calib_iter += successes
                 i += 1
-                print "Calibration sucess rate : {}% ({})".format(100*calib_iter/i, i)
+                print "Calibration sucess rate : {}% ({}/{})".format(100*calib_iter/i, calib_iter,i)
                 image = capture.get_frame()
             mtx, dist, rvecs, tvecs = self.calibration(shape)
             assert (mtx, dist, rvecs, tvecs) != (None,)*4
@@ -557,15 +559,14 @@ class CameraCalibration:
 
     def get_data(self):
         assert self.calibration_data is not None, "No data"
-        print("Parametres de la camera :\n>> camera_matrix={}\n>> distortion_coeffs={}".format(self.calibration_data[0], self.calibration_data[1]))
         return self.calibration_data
 
 class PoseEstimation:
     def __init__(self, capture, params):
         self.capture = capture
         self.marker_detector = MarkerDetector()
-        self.camera_matrix, self.distortion_coeffs = params
-        #self.camera_matrix, self.distortion_coeffs = (np.array([[ 859.87780302,0.,682.3173388 ],[0.,799.06029505,382.57139684],[   0.        ,    0.        ,    1.        ]]), np.array([[ 0.2529905 , -0.12695403, -0.01182944, -0.02478326, -0.48389559]]))
+        #self.camera_matrix, self.distortion_coeffs = params
+        self.camera_matrix, self.distortion_coeffs = (np.array([[ 859.87780302,0.,682.3173388 ],[0.,799.06029505,382.57139684],[   0.        ,    0.        ,    1.        ]]), np.array([[ 0.2529905 , -0.12695403, -0.01182944, -0.02478326, -0.48389559]]))
         self.marker_corners3d = []
         self.marker_corners3d.append((-0.5,-0.5,0))
         self.marker_corners3d.append((+0.5,-0.5,0))
@@ -574,9 +575,10 @@ class PoseEstimation:
         self.marker_corners3d = np.array(self.marker_corners3d)
         self.marker_corners3d = self.marker_corners3d.astype(np.float32)
         self.criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-        self.axis = np.float32([[3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3)
+        self.axis = np.float32([[0.5,0,0], [0,0.5,0], [0,0,-0.5]]).reshape(-1,3)
 
     def run(self):
+        print("Parametres de la camera :\n>> camera_matrix={}\n>> distortion_coeffs={}".format(self.camera_matrix, self.distortion_coeffs))
         while True:
             image = self.capture.get_frame()
             if image is not None:
@@ -615,9 +617,9 @@ class PoseEstimation:
 
     def draw(self, img, corners, imgpts):
         corner = tuple(corners[0].ravel().astype(int))
-        img = cv2.line(img, corner, tuple(imgpts[0].ravel()), (255,0,0), 5)
-        img = cv2.line(img, corner, tuple(imgpts[1].ravel()), (0,255,0), 5)
-        img = cv2.line(img, corner, tuple(imgpts[2].ravel()), (0,0,255), 5)
+        img = cv2.line(img, corner, tuple(imgpts[0].ravel()), (255,0,0), 2)
+        img = cv2.line(img, corner, tuple(imgpts[1].ravel()), (0,255,0), 2)
+        img = cv2.line(img, corner, tuple(imgpts[2].ravel()), (0,0,255), 2)
         return img
 
 class Master:
@@ -628,15 +630,19 @@ class Master:
 
     def start(self, device, mode, material_id):
         self.mode = mode
+        self.calibration = CameraCalibration(device)
         if mode == VID_MODE:
             self.capture = VideoController(material_id, device)
+            self.capture.open()
+            self.calibration.run()
         elif mode == CAM_MODE:
             self.capture = CamController(material_id, device)
+            self.capture.open()
+            self.calibration.run(self.capture)
         elif mode == IMG_MODE:
             self.capture = ImageController(material_id, device)
-        self.capture.open()
-        self.calibration = CameraCalibration(device)
-        self.calibration.run()
+            self.capture.open()
+            self.calibration.run()
         params = self.calibration.get_data()
         #self.world = World(self.capture, params)
         #self.world.start()
@@ -654,8 +660,9 @@ CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
 # Devices Source
-DEVICE_NAME = "sony_camera"
-#DEVICE_NAME = "laptop_camera"
+#DEVICE_NAME = "sony_camera"
+DEVICE_NAME = "laptop_camera"
+#DEVICE_NAME = "laptop_webcam"
 # Devices Type
 IMG_FILE = 'marker1.jpg'
 VID_FILE = 'markers/marker_vid_01.mp4'
