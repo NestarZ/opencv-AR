@@ -193,6 +193,7 @@ class MarkerDetector:
 
     def get_markers(self, img_gray, positions):
         ref_markers = self.get_ref_markers()
+
         detected_markers = {}
         for i in range(len(positions)):
             corners = self.curve_to_quadrangle(positions[i])
@@ -205,7 +206,7 @@ class MarkerDetector:
                     id_ = ref_markers.index(detected_mat)
                 except:
                     detected_mat = np.rot90(np.array(detected_mat)).tolist()
-                    #sorted_corners = np.rot90(sorted_corners) # Dont work, il faudrait echanger les positions
+                    sorted_corners = self.rotate(sorted_corners, -90) # Dont work, il faudrait echanger les positions
                 else:
                     detected_markers[id_] = sorted_corners.tolist()
                     #self.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
@@ -216,6 +217,22 @@ class MarkerDetector:
             self.nb_current_quadrangles = len(positions)
 
         return detected_markers
+
+    def rotate(self, corners, angle):
+        assert angle in (-90,90,180,270), "Not an angle, need to be -90,90,180,270"
+
+        if angle == 90:
+            rotation_vec = (3,1,2,4) 
+        elif angle == 180:
+            rotation_vec = (4,3,2,1)
+        else:
+            rotation_vec = (2,4,1,3)
+
+        rotated = [corners[i-1] for i in rotation_vec]
+        print(rotated)
+
+        return np.array(rotated,'f')
+
 
     def sort_corners(self, corners):
         top_corners = sorted(corners, key=lambda x : x[1])
