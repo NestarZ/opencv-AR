@@ -526,8 +526,8 @@ class PoseEstimation:
         self.marker_corners3d = []
         self.marker_corners3d.append((-0.5,-0.5,0))
         self.marker_corners3d.append((+0.5,-0.5,0))
-        self.marker_corners3d.append((+0.5,+0.5,0))
         self.marker_corners3d.append((-0.5,+0.5,0))
+        self.marker_corners3d.append((+0.5,+0.5,0))
         self.marker_corners3d = np.array(self.marker_corners3d)
         self.marker_corners3d = self.marker_corners3d.astype(np.float32)
         self.criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
@@ -558,16 +558,9 @@ class PoseEstimation:
         # Find the rotation and translation vectors.
         objp = self.marker_corners3d
         for marker_corners in markers_corners:
-            print(marker_corners)
-            print(objp)
             _, rvecs, tvecs = cv2.solvePnP(objp, marker_corners, self.camera_matrix, self.distortion_coeffs)
-            print(rvecs)
-            print(tvecs)
-            print(self.camera_matrix)
-            print(self.distortion_coeffs)
             # project 3D points to image plane
             imgpts, jac = cv2.projectPoints(self.axis, rvecs, tvecs, self.camera_matrix, self.distortion_coeffs)
-            print(imgpts)
             try:
                 image = self.draw(image,marker_corners,imgpts)
             except:
@@ -581,7 +574,6 @@ class PoseEstimation:
         img = cv2.line(img, corner, tuple(imgpts[1].ravel()), (0,255,0), 5)
         img = cv2.line(img, corner, tuple(imgpts[2].ravel()), (0,0,255), 5)
         return img
-
 
 class Master:
     def __init__(self):

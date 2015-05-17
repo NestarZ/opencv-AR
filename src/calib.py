@@ -41,9 +41,8 @@ import glob
 #####################################################################################
 
 def draw(img, corners, imgpts):
-    print(imgpts)
     imgpts = np.int32(imgpts).reshape(-1,2)
-
+    print(imgpts)
     # draw ground floor in green
     img = cv2.drawContours(img, [imgpts[:4]],-1,(0,255,0),-3)
 
@@ -77,13 +76,12 @@ for fname in glob.glob('/home/elias/git/opencv-AR/media/img/laptop_camera/chessb
 
     if ret == True:
         corners2 = cv2.cornerSubPix(gray,corners,(11,11),(-1,-1),criteria)
-
         # Find the rotation and translation vectors.
         inliers, rvecs, tvecs = cv2.solvePnP(objp, corners2, mtx, dist)
 
         # project 3D points to image plane
         imgpts, jac = cv2.projectPoints(axis, rvecs, tvecs, mtx, dist)
-
+        print("lol",imgpts)
         img = draw(img,corners2,imgpts)
         cv2.imshow('img',img)
         k = cv2.waitKey(0) & 0xff
