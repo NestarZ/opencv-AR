@@ -282,24 +282,6 @@ class MeshController:
         self.time_hidden = 0
         self.obj.show()
 
-class Camera:
-  def __init__(self,P):
-    """ Initialize P = K[R|t] camera model. """
-    self.P = P
-    self.K = None # calibration matrix
-    self.R = None # rotation
-    self.t = None # translation
-    self.c = None # camera center
-
-
-  def project(self,X):
-    """  Project points in X (4*n array) and normalize coordinates. """
-
-    x = dot(self.P,X)
-    for i in range(3):
-      x[i] /= x[2]
-    return x
-
 class VideoTexture:
     def __init__(self, capture):
         self.capture = capture
@@ -566,25 +548,27 @@ class PoseEstimation:
         self.capture = capture
         self.marker_detector = MarkerDetector()
         #self.camera_matrix, self.distortion_coeffs = params
-        self.camera_matrix, self.distortion_coeffs = (np.array([[ 859.87780302,0.,682.3173388 ],[0.,799.06029505,382.57139684],[   0.        ,    0.        ,    1.        ]]), np.array([[ 0.2529905 , -0.12695403, -0.01182944, -0.02478326, -0.48389559]]))
+        self.camera_matrix = np.array([[611.18384754, 0, 515.31108992], [0, 611.06728767, 402.07541332], [0, 0, 1]])
+        self.distortion_coeffs = np.array([-0.36824145, 0.2848545, 0, 0, 0])
         self.marker_corners3d = []
-        self.marker_corners3d.append((-0.5,-0.5,0))
-        self.marker_corners3d.append((+0.5,-0.5,0))
-        self.marker_corners3d.append((-0.5,+0.5,0))
-        self.marker_corners3d.append((+0.5,+0.5,0))
+        self.marker_corners3d.append((0,0,0))
+        self.marker_corners3d.append((1,0,0))
+        self.marker_corners3d.append((0,1,0))
+        self.marker_corners3d.append((1,1,0))
         self.marker_corners3d = np.array(self.marker_corners3d)
         self.marker_corners3d = self.marker_corners3d.astype(np.float32)
         self.criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
-        self.axis = np.float32([[0.5,0,0], [0,0.5,0], [0,0,-0.5]]).reshape(-1,3)
+        self.axis = np.float32([[0,0,0], [0,1,0], [1,1,0], [1,0,0], [0,0,-1], [0,1,-1],[1,1,-1],[1,0,-1]])
 
     def run(self):
         print("Parametres de la camera :\n>> camera_matrix={}\n>> distortion_coeffs={}".format(self.camera_matrix, self.distortion_coeffs))
         while True:
             image = self.capture.get_frame()
-            if image is not None:
-                markers = self.marker_detector.find(image)
-                if markers:
-                    self.estimate(image, markers)
+            if image is None:
+                break
+            markers = self.marker_detector.find(image)
+            if markers:
+                self.estimate(image, markers)
 
     def refine_corners(self, gray, markers_corners):
         precise_corners = []
@@ -599,7 +583,7 @@ class PoseEstimation:
         return markers_corners
 
     def estimate(self, image, markers):
-        gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         markers_corners = np.array([points for points in markers.values()])
         markers_corners = self.refine_corners(gray, markers_corners)
         # Find the rotation and translation vectors.
@@ -609,18 +593,31 @@ class PoseEstimation:
             # project 3D points to image plane
             imgpts, jac = cv2.projectPoints(self.axis, rvecs, tvecs, self.camera_matrix, self.distortion_coeffs)
             try:
-                image = self.draw(image,marker_corners,imgpts)
+                image = self.draw_cube(image,marker_corners,imgpts)
             except:
+                print("Draw failed")
                 pass
         UserInterface.display('pose_estimation', image)
         cv2.waitKey(1)
 
-    def draw(self, img, corners, imgpts):
+    def draw_axis(self, img, corners, imgpts):
         corner = tuple(corners[0].ravel().astype(int))
         img = cv2.line(img, corner, tuple(imgpts[0].ravel()), (255,0,0), 2)
         img = cv2.line(img, corner, tuple(imgpts[1].ravel()), (0,255,0), 2)
         img = cv2.line(img, corner, tuple(imgpts[2].ravel()), (0,0,255), 2)
         return img
+
+    def draw_cube(self, img, corners, imgpts):
+        imgpts = np.int32(imgpts).reshape(-1,2)
+        # draw ground floor in green
+        img = cv2.drawContours(img, [imgpts[:4]],-1,(0,255,0),-3)
+        # draw pillars in blue color
+        for i,j in zip(range(4),range(4,8)):
+            img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]),(255),3)
+        # draw top layer in red color
+        img = cv2.drawContours(img, [imgpts[4:]],-1,(0,0,255),3)
+        return img
+
 
 class Master:
     def __init__(self):
@@ -660,8 +657,8 @@ CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
 # Devices Source
-#DEVICE_NAME = "sony_camera"
-DEVICE_NAME = "laptop_camera"
+DEVICE_NAME = "sony_camera"
+#DEVICE_NAME = "laptop_camera"
 #DEVICE_NAME = "laptop_webcam"
 # Devices Type
 IMG_FILE = 'marker1.jpg'
