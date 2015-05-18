@@ -267,7 +267,6 @@ class MeshController:
         else:
             self.obj.setPos(pos3d[0],pos3d[1],pos3d[2])
         self.obj.setScale(scale)
-
         self.obj.setHpr(rot[0],rot[1],rot[2])
 
     def reparentTo(self, parent):
@@ -321,21 +320,16 @@ class World(ShowBase):
         self.obj_list = {}
         self.ui = UserInterface()
         self.marker_detector = MarkerDetector()
+        self.pose_estimation = PoseEstimation()
         self.video_texture = VideoTexture(capture)
         self.caption1 = self.addCaption(0.30, "")
         self.title = self.addTitle("AR Mathieu & Elias")
         self.videoNode = self.render.attachNewNode("World")
         self.objNode = self.videoNode.attachNewNode("Objets")
         self.camera_matrix, self.distortion_coeffs = camera_param
-        self.marker_corners3d = []
-        self.marker_corners3d.append((-0.5,-0.5,0))
-        self.marker_corners3d.append((+0.5,-0.5,0))
-        self.marker_corners3d.append((+0.5,+0.5,0))
-        self.marker_corners3d.append((-0.5,+0.5,0))
-        self.marker_corners3d = np.array(self.marker_corners3d)
 
     def get_marker3d_corners(self):
-        return self.marker_corners3d
+        return self.pose_estimation.marker_corners3d
 
     def set_camera(self, lens_sizeX, lens_sizeY):
         camera.setPos(0.0, -3.75, 0)
@@ -402,10 +396,6 @@ class World(ShowBase):
             z = (center[1] - 180) / -180.0
 
 
-            pos = np.array(pos)
-            marker3d_corners = self.get_marker3d_corners()
-            _ret, rot, trans = cv2.solvePnP(marker3d_corners, pos, self.camera_matrix, self.distortion_coeffs)
-
             #adaptative scale, depending on how far the marker is
             #the further the smaller
             dx12 = euclid(pos[1][0],pos[2][0])
@@ -419,24 +409,27 @@ class World(ShowBase):
 
             #calculate Rotation for mesh
 
-            return (x,y,z,scale, rot[0], rot[1], rot[2])
-
-        self.markers = self.get_detected_markers()
+            return (x,y,z,scale, 0, 0, 0)
+        markers = self.get_detected_markers()
+        markers, markers_transform_vecs = self.estimate(markers) # markers_transform_vecs[id_obj] = rvecs, tvecs, imgpts
         if self.ui.exit: pass
         for mesh in self.obj_list.values():
             mesh.hide(4) # 4 frames until hide (prevent blink)
-        for (id_obj, pos) in self.markers.items():
+        for (id_obj, pos) in markers.items():
             if id_obj not in self.obj_list:
                 self.obj_list[id_obj] = MeshController(id_obj)
                 self.obj_list[id_obj].reparentTo(self.objNode)
             self.obj_list[id_obj].show()
+            rvecs = markers_transform_vecs[id_obj][0]
             #Need converter to stick to position, deal with rotation
             (x, y, z, scale, rx, ry, rz) = convertPosMarkerToPosWorld(self.obj_list[id_obj].obj, pos)
-            self.obj_list[id_obj].setPosScale((x, y, z), scale, (rx,ry,rz), self.videoNode)
+            self.obj_list[id_obj].setPosScale((x, y, z), scale, (rvecs[0],rvecs[1],rvecs[2]), self.videoNode)
         return task.cont
 
-    def estimate_camera_position(self):
-        cv2.solvePnP(self.markers, imagePoints, self.camera_matrix, self.distortion_coeffs, rvec, vec, useExtrinsicGuess=False)
+    def estimate(self, markers):
+        # markers_transform_vecs[id] = rvecs, tvecs, imgpts
+        markers, markers_transform_vecs = self.pose_estimation.estimate(self.video_texture.get_image(), markers)
+        return markers, markers_transform_vecs
 
     def addCaption(self, pos, msg):
         return OnscreenText(text=msg, style=2, fg=(1, 1, 1, 1),
@@ -505,7 +498,7 @@ class CameraCalibration:
 
     def calibration(self, shape):
         print "Calibration ongoing... "
-        ret, mtx, dist, rvecs, tvecs  = cv2.calibrateCamera(np.array(self.objpoints).astype(np.float32), np.array(self.imgpoints).astype(np.float32), shape, None,None)
+        ret, mtx, dist, rvecs, tvecs  = cv2.calibrateCamera(np.float32(self.objpoints), np.float32(self.imgpoints), shape, None,None)
         print "Calibration OK"
         return mtx, dist, rvecs, tvecs
 
@@ -518,9 +511,7 @@ class CameraCalibration:
         found, self.calibration_data = self.get_calibration_data(self.device_name)
         if not found:
             if not capture:
-                #capture = ImageController("/home/elias/OpenCV/opencv/samples/data/left", self.device_name, batch=True, absolute=True) # opencv chessboard
                 capture = ImageController("chessboard/", self.device_name, batch=True, regex='*') # laptop camera chessboard (img)
-                #capture = ImageController("chessboard/", self.device_name, batch=True, regex='*.png') # laptop camera chessboard (img)
                 #capture = VideoController("chessboard/chessboard_vid_01.mp4", self.device_name) # sony camera chessboard (video)
                 #capture = CamController(CAM_INDEX, self.device_name)
                 capture.open()
@@ -544,26 +535,20 @@ class CameraCalibration:
         return self.calibration_data
 
 class PoseEstimation:
-    def __init__(self, capture, params):
-        self.capture = capture
-        self.marker_detector = MarkerDetector()
+    def __init__(self, params=None):
         #self.camera_matrix, self.distortion_coeffs = params
         self.camera_matrix = np.array([[611.18384754, 0, 515.31108992], [0, 611.06728767, 402.07541332], [0, 0, 1]])
         self.distortion_coeffs = np.array([-0.36824145, 0.2848545, 0, 0, 0])
-        self.marker_corners3d = []
-        self.marker_corners3d.append((0,0,0))
-        self.marker_corners3d.append((1,0,0))
-        self.marker_corners3d.append((0,1,0))
-        self.marker_corners3d.append((1,1,0))
-        self.marker_corners3d = np.array(self.marker_corners3d)
-        self.marker_corners3d = self.marker_corners3d.astype(np.float32)
+        self.marker_corners3d = np.float32([(0,0,0), (1,0,0), (0,1,0), (1,1,0)])
         self.criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
         self.axis = np.float32([[0,0,0], [0,1,0], [1,1,0], [1,0,0], [0,0,-1], [0,1,-1],[1,1,-1],[1,0,-1]])
 
-    def run(self):
+    def run(self, capture):
+        # Stand alone function
+        self.marker_detector = MarkerDetector()
         print("Parametres de la camera :\n>> camera_matrix={}\n>> distortion_coeffs={}".format(self.camera_matrix, self.distortion_coeffs))
         while True:
-            image = self.capture.get_frame()
+            image = capture.get_frame()
             if image is None:
                 break
             markers = self.marker_detector.find(image)
@@ -575,7 +560,7 @@ class PoseEstimation:
         for corners in markers_corners:
             for c in range(4):
                 precise_corners.append(np.array([corners[c]]))
-        a = np.array(precise_corners).astype(np.float32)
+        a = np.float32(precise_corners)
         precise_corners = cv2.cornerSubPix(gray, a, (6,6), (-1,-1), self.criteria)
         for i, corners in enumerate(markers_corners):
             for c in range(4):
@@ -584,21 +569,25 @@ class PoseEstimation:
 
     def estimate(self, image, markers):
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        markers_corners = np.array([points for points in markers.values()])
+        corners_id, corners_list = [], []
+        for id_, points in markers.items():
+            corners_list.append(points)
+            corners_id.append(id_)
+        markers_corners = np.array(corners_list)
         markers_corners = self.refine_corners(gray, markers_corners)
         # Find the rotation and translation vectors.
         objp = self.marker_corners3d
-        for marker_corners in markers_corners:
+        markers_transform_vecs = {}
+        for i, marker_corners in enumerate(markers_corners):
             _, rvecs, tvecs = cv2.solvePnP(objp, marker_corners, self.camera_matrix, self.distortion_coeffs)
             # project 3D points to image plane
             imgpts, jac = cv2.projectPoints(self.axis, rvecs, tvecs, self.camera_matrix, self.distortion_coeffs)
-            try:
-                image = self.draw_cube(image,marker_corners,imgpts)
-            except:
-                print("Draw failed")
-                pass
+            image = self.draw_cube(image,marker_corners,imgpts)
+            markers[corners_id[i]] = marker_corners
+            markers_transform_vecs[corners_id[i]] = rvecs, tvecs, imgpts
         UserInterface.display('pose_estimation', image)
         cv2.waitKey(1)
+        return markers, markers_transform_vecs
 
     def draw_axis(self, img, corners, imgpts):
         corner = tuple(corners[0].ravel().astype(int))
@@ -613,11 +602,10 @@ class PoseEstimation:
         img = cv2.drawContours(img, [imgpts[:4]],-1,(0,255,0),-3)
         # draw pillars in blue color
         for i,j in zip(range(4),range(4,8)):
-            img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]),(255),3)
+            img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]),(255),2)
         # draw top layer in red color
-        img = cv2.drawContours(img, [imgpts[4:]],-1,(0,0,255),3)
+        img = cv2.drawContours(img, [imgpts[4:]],-1,(0,0,255),2)
         return img
-
 
 class Master:
     def __init__(self):
@@ -641,11 +629,11 @@ class Master:
             self.capture.open()
             self.calibration.run()
         params = self.calibration.get_data()
-        #self.world = World(self.capture, params)
-        #self.world.start()
-        #self.world.run()
-        self.pose_estimation = PoseEstimation(self.capture, params)
-        self.pose_estimation.run()
+        #self.pose_estimation = PoseEstimation(params)
+        #self.pose_estimation.run(self.capture)
+        self.world = World(self.capture, params)
+        self.world.start()
+        self.world.run()
 
     def cleanup(self):
         """ Closes all OpenCV windows and releases video capture device. """
@@ -666,8 +654,6 @@ VID_FILE = 'markers/marker_vid_01.mp4'
 CAM_INDEX = 0
 
 def main():
-    #x = CameraPosition()
-    #return
     master = Master()
     #master.start(DEVICE_NAME, IMG_MODE, IMG_FILE)
     master.start(DEVICE_NAME, VID_MODE, VID_FILE)
