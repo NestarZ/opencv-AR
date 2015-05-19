@@ -305,6 +305,7 @@ class VideoTexture:
         #return current frame as a panda3d texture
         if self.image is not None:
             return self.get_cv_img(self.get_image())
+        print("No image to read")
         return None
 
     def get_image(self):
@@ -377,6 +378,8 @@ class World(ShowBase):
 
     def update_mesh(self, task):
         markers = self.get_detected_markers()
+        if not markers:
+            return task.cont
         markers, markers_transform_vecs = self.estimate(markers) # markers_transform_vecs[id_obj] = rvecs, tvecs, imgpts
         if self.ui.exit: pass
         for mesh in self.obj_list.values():
@@ -537,6 +540,7 @@ class PoseEstimation:
         return markers_corners
 
     def estimate(self, image, markers):
+        print(markers)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         corners_id, corners_list = [], []
         for id_, points in markers.items():
@@ -614,9 +618,9 @@ CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
 # Devices Source
-DEVICE_NAME = "sony_camera"
+#DEVICE_NAME = "sony_camera"
 #DEVICE_NAME = "laptop_camera"
-#DEVICE_NAME = "laptop_webcam"
+DEVICE_NAME = "laptop_webcam"
 # Devices Type
 IMG_FILE = 'marker1.jpg'
 VID_FILE = 'markers/marker_vid_01.mp4'
@@ -625,8 +629,8 @@ CAM_INDEX = 0
 def main():
     master = Master()
     #master.start(DEVICE_NAME, IMG_MODE, IMG_FILE)
-    master.start(DEVICE_NAME, VID_MODE, VID_FILE)
-    #master.start(DEVICE_NAME, CAM_MODE, CAM_INDEX)
+    #master.start(DEVICE_NAME, VID_MODE, VID_FILE)
+    master.start(DEVICE_NAME, CAM_MODE, CAM_INDEX)
     master.cleanup()
 
 if __name__ == "__main__":
