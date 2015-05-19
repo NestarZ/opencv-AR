@@ -331,8 +331,8 @@ class World(ShowBase):
     def get_marker3d_corners(self):
         return self.pose_estimation.marker_corners3d
 
-    def set_camera(self, lens_sizeX, lens_sizeY):
-        camera.setPos(0.0, -3.75, 0)
+    def set_camera(self, pos, lens_sizeX, lens_sizeY):
+        camera.setPos(*pos)
         camera.lookAt(0.0, 0.0, 0.0)
         #lens = OrthographicLens() #pos is -60
         lens = PerspectiveLens()
@@ -353,7 +353,7 @@ class World(ShowBase):
         return self.videoNode.attachNewNode(cm.generate())
 
     def start(self):
-        self.set_camera(2, 2)
+        self.set_camera((0,0,0), 2, 2)
         self.set_light(AmbientLight, "alight", (0.2, 0.2, 0.2, 1))
         self.set_light(PointLight, "plight", (0.5, 0.5, 0.5, 1), (10, -60, 0))
         self.video_texture.update()
@@ -376,40 +376,6 @@ class World(ShowBase):
         return None
 
     def update_mesh(self, task):
-        def convertPosMarkerToPosWorld(obj, pos):
-            """
-            return the position where the mesh should be in world
-            using the parameters 'pos' sent by cv2
-            """
-            def euclid(x,y):
-                return abs(x-y)
-
-
-            #calculate position for mesh
-            center = [0,0]
-            for elem in pos:
-                center[0] += elem[0]/4
-                center[1] += elem[1]/4
-
-            x = (center[0] - 320) / 320.0
-            y = -0.4
-            z = (center[1] - 180) / -180.0
-
-
-            #adaptative scale, depending on how far the marker is
-            #the further the smaller
-            dx12 = euclid(pos[1][0],pos[2][0])
-            dx03 = euclid(pos[3][0],pos[0][0])
-            dy12 = euclid(pos[1][1],pos[2][1])
-            dy03 = euclid(pos[3][1],pos[0][1])
-            scale = dx12+dx03+dy12+dy03
-            scale = scale/960
-            scale = 0.2
-
-
-            #calculate Rotation for mesh
-
-            return (x,y,z,scale, 0, 0, 0)
         markers = self.get_detected_markers()
         markers, markers_transform_vecs = self.estimate(markers) # markers_transform_vecs[id_obj] = rvecs, tvecs, imgpts
         if self.ui.exit: pass
@@ -420,10 +386,12 @@ class World(ShowBase):
                 self.obj_list[id_obj] = MeshController(id_obj)
                 self.obj_list[id_obj].reparentTo(self.objNode)
             self.obj_list[id_obj].show()
-            rvecs = markers_transform_vecs[id_obj][0]
+            rvec,tvec,_ = markers_transform_vecs[id_obj]
+            rotM = cv2.Rodrigues(rvec)[0]
+            cameraPosition = -np.matrix(rotM).T * np.matrix(tvec)
+            self.set_camera(cameraPosition, self.camera_matrix[0,0], self.camera_matrix[1,1])
+            print(base.camera.getMat())
             #Need converter to stick to position, deal with rotation
-            (x, y, z, scale, rx, ry, rz) = convertPosMarkerToPosWorld(self.obj_list[id_obj].obj, pos)
-            self.obj_list[id_obj].setPosScale((x, y, z), scale, (rvecs[0],rvecs[1],rvecs[2]), self.videoNode)
         return task.cont
 
     def estimate(self, markers):
