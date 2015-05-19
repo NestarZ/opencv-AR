@@ -331,9 +331,9 @@ class World(ShowBase):
     def get_marker3d_corners(self):
         return self.pose_estimation.marker_corners3d
 
-    def set_camera(self, pos, lens_sizeX, lens_sizeY):
+    def set_camera(self, pos, optical_center, lens_sizeX, lens_sizeY):
         camera.setPos(*pos)
-        camera.lookAt(0.0, 0.0, 0.0)
+        camera.lookAt(*optical_center)
         #lens = OrthographicLens() #pos is -60
         lens = PerspectiveLens()
         lens.setFilmSize(lens_sizeX, lens_sizeY)
@@ -353,7 +353,7 @@ class World(ShowBase):
         return self.videoNode.attachNewNode(cm.generate())
 
     def start(self):
-        self.set_camera((0,0,0), 2, 2)
+        self.set_camera((0,0,0), (0,0,0), 2, 2)
         self.set_light(AmbientLight, "alight", (0.2, 0.2, 0.2, 1))
         self.set_light(PointLight, "plight", (0.5, 0.5, 0.5, 1), (10, -60, 0))
         self.video_texture.update()
@@ -389,7 +389,8 @@ class World(ShowBase):
             rvec,tvec,_ = markers_transform_vecs[id_obj]
             rotM = cv2.Rodrigues(rvec)[0]
             cameraPosition = -np.matrix(rotM).T * np.matrix(tvec)
-            self.set_camera(cameraPosition, self.camera_matrix[0,0], self.camera_matrix[1,1])
+            #self.set_camera(cameraPosition, self.camera_matrix[0:1,2], self.camera_matrix[0,0], self.camera_matrix[1,1])
+            self.set_camera([cameraPosition[i] for i in (0,2,1)], (0,0,0), self.camera_matrix[0,0], self.camera_matrix[1,1])
             print(base.camera.getMat())
             #Need converter to stick to position, deal with rotation
         return task.cont
