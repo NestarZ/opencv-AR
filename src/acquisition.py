@@ -618,9 +618,9 @@ CAM_MODE = 1
 VID_MODE = 2
 IMG_MODE = 3
 # Devices Source
-#DEVICE_NAME = "sony_camera"
+DEVICE_NAME = "sony_camera"
 #DEVICE_NAME = "laptop_camera"
-DEVICE_NAME = "laptop_webcam"
+#DEVICE_NAME = "laptop_webcam"
 # Devices Type
 IMG_FILE = 'marker1.jpg'
 VID_FILE = 'markers/marker_vid_01.mp4'
@@ -629,8 +629,8 @@ CAM_INDEX = 0
 def main():
     master = Master()
     #master.start(DEVICE_NAME, IMG_MODE, IMG_FILE)
-    #master.start(DEVICE_NAME, VID_MODE, VID_FILE)
-    master.start(DEVICE_NAME, CAM_MODE, CAM_INDEX)
+    master.start(DEVICE_NAME, VID_MODE, VID_FILE)
+    #master.start(DEVICE_NAME, CAM_MODE, CAM_INDEX)
     master.cleanup()
 
 if __name__ == "__main__":
