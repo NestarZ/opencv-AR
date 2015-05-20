@@ -209,12 +209,14 @@ class MarkerDetector:
                     sorted_corners = self.rotate(sorted_corners, -90) # Dont work, il faudrait echanger les positions
                 else:
                     detected_markers[id_] = sorted_corners.tolist()
-                    #self.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
+                    self.ui.display('marker_{} ({})'.format(id_, j), img, (i*300, 800))
                     break
 
         if self.nb_current_markers != len(detected_markers) or self.nb_current_quadrangles != len(positions):
             self.nb_current_markers = len(detected_markers)
             self.nb_current_quadrangles = len(positions)
+            print("Quadrangles detected = {}, Markers detected = {} (id: {})".format(
+            len(positions), len(detected_markers), detected_markers.keys()))
 
         return detected_markers
 
@@ -229,7 +231,6 @@ class MarkerDetector:
             rotation_vec = (2,4,1,3)
 
         rotated = [corners[i-1] for i in rotation_vec]
-        #print(rotated)
 
         return np.array(rotated,'f')
 
@@ -394,8 +395,7 @@ class World(ShowBase):
             cameraPosition = -np.matrix(rotM).T * np.matrix(tvec)
             #self.set_camera(cameraPosition, self.camera_matrix[0:1,2], self.camera_matrix[0,0], self.camera_matrix[1,1])
             self.set_camera([cameraPosition[i] for i in (0,2,1)], (0,0,0), self.camera_matrix[0,0], self.camera_matrix[1,1])
-            print(base.camera.getMat())
-            #Need converter to stick to position, deal with rotation
+            #print(base.camera.getMat())
         return task.cont
 
     def estimate(self, markers):
@@ -540,7 +540,6 @@ class PoseEstimation:
         return markers_corners
 
     def estimate(self, image, markers):
-        print(markers)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         corners_id, corners_list = [], []
         for id_, points in markers.items():
@@ -555,7 +554,7 @@ class PoseEstimation:
             _, rvecs, tvecs = cv2.solvePnP(objp, marker_corners, self.camera_matrix, self.distortion_coeffs)
             # project 3D points to image plane
             imgpts, jac = cv2.projectPoints(self.axis, rvecs, tvecs, self.camera_matrix, self.distortion_coeffs)
-            image = self.draw_cube(image,marker_corners,imgpts)
+            image = self.draw_cube(image,marker_corners,imgpts, corners_id[i])
             markers[corners_id[i]] = marker_corners
             markers_transform_vecs[corners_id[i]] = rvecs, tvecs, imgpts
         UserInterface.display('pose_estimation', image)
@@ -569,15 +568,17 @@ class PoseEstimation:
         img = cv2.line(img, corner, tuple(imgpts[2].ravel()), (0,0,255), 2)
         return img
 
-    def draw_cube(self, img, corners, imgpts):
+    def draw_cube(self, img, corners, imgpts, id_):
+        rep_color = {0:(0,1,2), 1:(1,0,2), 2:(2,0,1)}
+        color_list = [(255,0,0),(0,255,0),(0,0,255)]
         imgpts = np.int32(imgpts).reshape(-1,2)
         # draw ground floor in green
-        img = cv2.drawContours(img, [imgpts[:4]],-1,(0,255,0),-3)
+        img = cv2.drawContours(img, [imgpts[:4]],-1,color_list[rep_color[id_][0]],-3)
         # draw pillars in blue color
         for i,j in zip(range(4),range(4,8)):
-            img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]),(255),2)
+            img = cv2.line(img, tuple(imgpts[i]), tuple(imgpts[j]),color_list[rep_color[id_][1]],2)
         # draw top layer in red color
-        img = cv2.drawContours(img, [imgpts[4:]],-1,(0,0,255),2)
+        img = cv2.drawContours(img, [imgpts[4:]],-1,color_list[rep_color[id_][2]],2)
         return img
 
 class Master:
@@ -602,8 +603,6 @@ class Master:
             self.capture.open()
             self.calibration.run()
         params = self.calibration.get_data()
-        #self.pose_estimation = PoseEstimation(params)
-        #self.pose_estimation.run(self.capture)
         self.world = World(self.capture, params)
         self.world.start()
         self.world.run()
